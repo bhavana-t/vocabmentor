@@ -1,7 +1,7 @@
 // src/App.js
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  supabase, registerUser, loginUser, logoutUser, onAuthChange,
+  registerUser, loginUser, logoutUser, onAuthChange,
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
   advanceDay, advanceLesson, getAllUsers, getUserData
 } from "./supabase";
@@ -1218,19 +1218,37 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const didLoginRef = useRef(false);
 
   useEffect(()=>{
     let sub;
     onAuthChange(async u => {
       setAuthLoading(false);
-      if (u) { setUser(u); setScreen(u.profile?"dashboard":"setup"); }
-      else { setUser(null); setScreen("landing"); }
+      if (u) {
+        setUser(u);
+        if (didLoginRef.current) {
+          setScreen(u.profile ? "dashboard" : "setup");
+          didLoginRef.current = false;
+        }
+      } else {
+        setUser(null);
+        setScreen("landing");
+      }
     }).then(s=>{ sub=s; });
     return ()=>{ sub?.unsubscribe(); };
   },[]);
 
-  const handleLogin = (u) => { setUser(u); setScreen(u.profile?"dashboard":"setup"); };
-  const handleLogout = async () => { await logoutUser(); setUser(null); setScreen("landing"); };
+  const handleLogin = (u) => {
+    didLoginRef.current = true;
+    setUser(u);
+    setScreen(u.profile ? "dashboard" : "setup");
+  };
+  const handleLogout = async () => {
+    didLoginRef.current = false;
+    await logoutUser();
+    setUser(null);
+    setScreen("landing");
+  };
 
   const handleDayComplete = async (answers, feedback) => {
     const newDay = await advanceDay(user.id);
@@ -1255,7 +1273,10 @@ export default function App() {
       {/* Nav */}
       {user && !["setup","landing"].includes(screen) && (
         <div style={{ position:"sticky", top:0, zIndex:100, background:"rgba(22,33,62,0.95)", backdropFilter:"blur(12px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div style={{ fontWeight:800, fontSize:17, background:`linear-gradient(90deg,${C.sky},${C.gold})`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>📚 VocabMentor</div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontWeight:800, fontSize:17, background:`linear-gradient(90deg,${C.sky},${C.gold})`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>📚 VocabMentor</div>
+            {user?.username && <span style={{ fontSize:12, color:C.sky, background:"rgba(255,255,255,0.08)", padding:"3px 10px", borderRadius:20 }}>👤 {user.username}</span>}
+          </div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             {[["dashboard","🏠"],["history","📋"],["essay","✍️"]].map(([s,icon])=>(
               <button key={s} onClick={()=>nav(s)} style={{ ...S.btn(screen===s?"rgba(0,180,216,0.2)":"rgba(255,255,255,0.06)"), padding:"6px 12px", fontSize:12, border:screen===s?`1px solid ${C.teal}44`:"1px solid transparent" }}>
