@@ -6,21 +6,36 @@ const SUPABASE_KEY = "sb_publishable_-BZWwrRSTaHtXtHAfPP7gA_I3bH4FDr"; // ← pa
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ── Helper: wait for user row to exist ────────────────────────────────────────
+async function waitForUserRow(uid, retries = 5) {
+  for (let i = 0; i < retries; i++) {
+    const { data } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", uid)
+      .maybeSingle();
+    if (data) return data;
+    // Wait 500ms before retrying
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return null;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export async function registerUser(email, password, username) {
-  // 1. Sign up with Supabase Auth
+  // 1. Create auth user
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
   const uid = data.user.id;
 
-  // 2. Check if user row already exists (avoid duplicate insert)
+  // 2. Check if profile row already exists
   const { data: existing } = await supabase
     .from("users")
     .select("id")
     .eq("id", uid)
     .maybeSingle();
 
-  // 3. Only insert if not already there
+  // 3. Insert only if not already there
   if (!existing) {
     const { error: dbErr } = await supabase.from("users").insert({
       id: uid,
@@ -36,7 +51,10 @@ export async function registerUser(email, password, username) {
     if (dbErr) throw dbErr;
   }
 
-  return await getUserData(uid);
+  // 4. Wait for row to be available then return
+  const userData = await waitForUserRow(uid);
+  if (!userData) throw new Error("Profile creation failed. Please try again.");
+  return { ...userData, tests: [], lessons: [], essays: [] };
 }
 
 export async function loginUser(email, password) {
@@ -52,12 +70,25 @@ export async function logoutUser() {
 export async function onAuthChange(callback) {
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
     async (event, session) => {
+      // Ignore these events to avoid race conditions
+      if (event === "SIGNED_UP") {
+        callback(null);
+        return;
+      }
       if (session?.user) {
         try {
-          const user = await getUserData(session.user.id);
-          callback(user);
+          // Wait for user row to exist before fetching
+          const row = await waitForUserRow(session.user.id);
+          if (row) {
+            const tests = await getUserTests(session.user.id);
+            const lessons = await getUserLessons(session.user.id);
+            const essays = await getUserEssays(session.user.id);
+            callback({ ...row, tests, lessons, essays });
+          } else {
+            callback(null);
+          }
         } catch (e) {
-          console.error("onAuthChange error:", e);
+          console.error("Auth change error:", e);
           callback(null);
         }
       } else {
@@ -70,7 +101,6 @@ export async function onAuthChange(callback) {
 
 // ── User data ─────────────────────────────────────────────────────────────────
 export async function getUserData(uid) {
-  // Use maybeSingle() instead of single() to avoid errors when no row found
   const { data, error } = await supabase
     .from("users")
     .select("*")
@@ -78,9 +108,8 @@ export async function getUserData(uid) {
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error("User profile not found");
+  if (!data) throw new Error("User profile not found.");
 
-  // Fetch related data safely
   const tests = await getUserTests(uid);
   const lessons = await getUserLessons(uid);
   const essays = await getUserEssays(uid);
@@ -102,7 +131,6 @@ export async function advanceDay(uid) {
     .select("current_day")
     .eq("id", uid)
     .maybeSingle();
-
   const newDay = ((data?.current_day) || 1) + 1;
   await supabase.from("users").update({ current_day: newDay }).eq("id", uid);
   return newDay;
@@ -114,17 +142,17 @@ export async function advanceLesson(uid, passed) {
     .select("*")
     .eq("id", uid)
     .maybeSingle();
-
   const today = new Date().toDateString();
   const updates = passed
     ? {
         current_lesson: ((data?.current_lesson) || 1) + 1,
         current_day: 1,
-        streak: data?.last_active !== today ? ((data?.streak) || 0) + 1 : data?.streak,
+        streak: data?.last_active !== today
+          ? ((data?.streak) || 0) + 1
+          : (data?.streak || 0),
         last_active: today
       }
     : { current_day: 1 };
-
   await supabase.from("users").update(updates).eq("id", uid);
   return await getUserData(uid);
 }
