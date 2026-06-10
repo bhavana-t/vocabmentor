@@ -1,1 +1,5 @@
-node_modules/.envbuild/.DS_Store
+node_modules/
+.env
+build/
+.DS_Store
+*.local
