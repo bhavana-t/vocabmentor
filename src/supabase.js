@@ -47,7 +47,7 @@ export async function onAuthChange(callback) {
 
 // ── User data ─────────────────────────────────────────────────────────────────
 export async function getUserData(uid) {
-  const { data, error } = await supabase.from("users").select("*").eq("id", uid).single();
+  const { data, error } = await supabase.from("users").select("*").eq("id", uid).maybeSingle();
   if (error) throw error;
   const tests = await getUserTests(uid);
   const lessons = await getUserLessons(uid);
@@ -61,14 +61,14 @@ export async function saveProfile(uid, profile) {
 }
 
 export async function advanceDay(uid) {
-  const { data } = await supabase.from("users").select("current_day").eq("id", uid).single();
+  const { data } = await supabase.from("users").select("current_day").eq("id", uid).maybeSingle();
   const newDay = (data.current_day || 1) + 1;
   await supabase.from("users").update({ current_day: newDay }).eq("id", uid);
   return newDay;
 }
 
 export async function advanceLesson(uid, passed) {
-  const { data } = await supabase.from("users").select("*").eq("id", uid).single();
+  const { data } = await supabase.from("users").select("*").eq("id", uid).maybeSingle();
   const today = new Date().toDateString();
   const updates = passed ? {
     current_lesson: (data.current_lesson || 1) + 1,
@@ -102,7 +102,7 @@ export async function getUserTests(uid) {
 
 // ── Essays ────────────────────────────────────────────────────────────────────
 export async function saveEssay(uid, record) {
-  const { data, error } = await supabase.from("essays").insert({ user_id: uid, ...record }).select().single();
+  const { data, error } = await supabase.from("essays").insert({ user_id: uid, ...record }).select().maybeSingle();
   if (error) throw error;
   return data;
 }
