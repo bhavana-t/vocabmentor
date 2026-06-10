@@ -5,7 +5,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://avoudytkqdajuogtdhln.supabase.co"; // ← your project URL
-const SUPABASE_KEY = "sb_publishable_-BZWwrRSTaHtXtHAfPP7gA_I3bH4FDr";        // ← paste publishable key
+const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;      // ← paste publishable key
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
