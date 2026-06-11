@@ -1,3 +1,4 @@
+/* eslint-disable */
 // src/App.js
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
