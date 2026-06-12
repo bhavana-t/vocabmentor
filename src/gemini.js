@@ -34,21 +34,35 @@ const BODY = (prompt) => JSON.stringify({
   generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
 });
 
-export async function callGemini(prompt) {
-  const options = { method: "POST", headers: { "Content-Type": "application/json" }, body: BODY(prompt) };
-  try {
-    let res = await fetchWithTimeout(GEMINI_URL, options, 30000);
-    if ((res.status === 429 || res.status === 503)) {
-      await new Promise(r => setTimeout(r, 3000));
-      res = await fetchWithTimeout(GEMINI_URL, { ...options, body: BODY(prompt) }, 30000);
+export async function callGemini(prompt, onRetry) {
+  const options = { method: "POST", headers: { "Content-Type": "application/json" } };
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 5000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetchWithTimeout(GEMINI_URL, { ...options, body: BODY(prompt) }, 30000);
+      if (res.status === 429) {
+        if (attempt < MAX_RETRIES) {
+          if (onRetry) onRetry("AI is busy, retrying...");
+          await new Promise(r => setTimeout(r, RETRY_DELAY));
+          continue;
+        }
+        return { type: "error", message: "AI is busy, retrying..." };
+      }
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      return JSON.parse(clean);
+    } catch (e) {
+      if (attempt < MAX_RETRIES) {
+        if (onRetry) onRetry("AI is busy, retrying...");
+        await new Promise(r => setTimeout(r, RETRY_DELAY));
+        continue;
+      }
+      console.error("Gemini error:", e);
+      return { type: "error", message: e.message };
     }
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch (e) {
-    console.error("Gemini error:", e);
-    return { type: "error", message: e.message };
   }
 }
 
