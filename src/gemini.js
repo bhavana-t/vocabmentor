@@ -15,17 +15,33 @@ BEHAVIOR:
 
 CRITICAL: Always respond in valid JSON only. No markdown, no backticks, no preamble. Raw JSON only.`;
 
-export async function callGemini(prompt) {
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
-      })
-    });
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("Request timed out - please try again");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const BODY = (prompt) => JSON.stringify({
+  system_instruction: { parts: [{ text: SYSTEM }] },
+  contents: [{ parts: [{ text: prompt }] }],
+  generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+});
+
+export async function callGemini(prompt) {
+  const options = { method: "POST", headers: { "Content-Type": "application/json" }, body: BODY(prompt) };
+  try {
+    let res = await fetchWithTimeout(GEMINI_URL, options, 30000);
+    if ((res.status === 429 || res.status === 503)) {
+      await new Promise(r => setTimeout(r, 3000));
+      res = await fetchWithTimeout(GEMINI_URL, { ...options, body: BODY(prompt) }, 30000);
+    }
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const clean = text.replace(/```json|```/g, "").trim();
