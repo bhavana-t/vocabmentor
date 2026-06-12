@@ -1,6 +1,6 @@
 // src/gemini.js
 // ─────────────────────────────────────────────────────────────────────────────
-// PASTE YOUR GEMINI API KEY BELOW
+// Gemini API key loaded from REACT_APP_GEMINI_KEY environment variable
 // ─────────────────────────────────────────────────────────────────────────────
 const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
