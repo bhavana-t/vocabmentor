@@ -31,7 +31,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 const BODY = (prompt) => JSON.stringify({
   system_instruction: { parts: [{ text: SYSTEM }] },
   contents: [{ parts: [{ text: prompt }] }],
-  generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+  generationConfig: { temperature: 0.7, maxOutputTokens: 8192 }
 });
 
 export async function callGemini(prompt, onRetry) {
