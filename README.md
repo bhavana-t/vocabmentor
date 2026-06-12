@@ -77,3 +77,4 @@ Or push to GitHub and connect at vercel.com for auto-deploy.
 ## Admin access
 
 On landing page → click "Admin" at the bottom → password: admin123
+# force rebuild Thu Jun 11 18:02:03 PDT 2026
