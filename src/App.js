@@ -72,17 +72,22 @@ function useSpeech() {
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
   const recRef = useRef(null);
-  const supported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  const SR = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const supported = !!SR;
+  const BROWSER_ERROR_MSG = "Microphone not available in this browser. Please use Chrome for voice recording, or type your response below.";
   const start = useCallback(()=>{
-    if (!supported) { setError("Use Chrome for speech recognition."); return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!supported) { setError(BROWSER_ERROR_MSG); return; }
     const rec = new SR(); rec.continuous=true; rec.interimResults=true; rec.lang="en-US";
     rec.onstart=()=>setListening(true);
     rec.onresult=(e)=>{ let t=""; for(let i=0;i<e.results.length;i++) if(e.results[i].isFinal) t+=e.results[i][0].transcript+" "; setTranscript(t.trim()); };
-    rec.onerror=(e)=>{ setError(e.error); setListening(false); };
+    rec.onerror=(e)=>{
+      if (e.error==="service-not-allowed" || e.error==="not-allowed") setError(BROWSER_ERROR_MSG);
+      else setError(e.error);
+      setListening(false);
+    };
     rec.onend=()=>setListening(false);
     recRef.current=rec; rec.start();
-  },[supported]);
+  },[SR, supported, BROWSER_ERROR_MSG]);
   const stop = useCallback(()=>{ recRef.current?.stop(); setListening(false); },[]);
   const reset = useCallback(()=>{ setTranscript(""); setError(""); },[]);
   return { listening, transcript, error, start, stop, reset };
