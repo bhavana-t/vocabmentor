@@ -309,6 +309,8 @@ function EssayView({ user, onBack }) {
   const [savedEssayId, setSavedEssayId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [wordCount, setWordCount] = useState(0);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const essayDraftKey = `essay_draft_${user.id}`;
 
   // Check if there's a pending essay (resubmission due)
   useEffect(()=>{
@@ -320,9 +322,19 @@ function EssayView({ user, onBack }) {
       setEssay(pending.first_essay);
       setStage("rewrite");
     } else {
+      const savedDraft = localStorage.getItem(`essay_draft_${user.id}`);
+      if (savedDraft) { setEssay(savedDraft); setWordCount(savedDraft.trim().split(/\s+/).filter(Boolean).length); }
       loadTopic();
     }
   },[]);
+
+  useEffect(()=>{
+    if (stage !== "topic" || !essay) return;
+    localStorage.setItem(essayDraftKey, essay);
+    setDraftSaved(true);
+    const t = setTimeout(() => setDraftSaved(false), 2000);
+    return () => clearTimeout(t);
+  },[essay, stage]);
 
   const loadTopic = async () => {
     setStage("loading");
@@ -336,6 +348,7 @@ function EssayView({ user, onBack }) {
     setBusy(false);
     if (result.type==="essay_evaluation") {
       setEvaluation(result);
+      localStorage.removeItem(essayDraftKey);
       const saved = await saveEssay(user.id, {
         topic_data: topic,
         first_essay: essay,
@@ -447,6 +460,7 @@ function EssayView({ user, onBack }) {
             )}
           </div>
 
+          {draftSaved && <div style={{ textAlign:"center", fontSize:12, color:C.sage, marginBottom:8 }}>✓ Draft saved</div>}
           {busy && <Spinner label="Analysing your essay..."/>}
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`), width:"100%", justifyContent:"center", padding:14 }}
             onClick={submitEssay} disabled={busy||wordCount<topic.minWords}>
@@ -625,8 +639,10 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [draftSaved, setDraftSaved] = useState(false);
   const speech = useSpeech();
   const skill = SKILLS[(lessonNum-1)%SKILLS.length];
+  const draftKey = `lesson_draft_${user.id}_${lessonNum}_${day}`;
 
   useEffect(()=>{
     (async()=>{
@@ -634,8 +650,18 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
       const result = await generateLesson(user.profile, lessonNum, day, skill);
       setLoading(false);
       setLesson(result.type==="lesson"?result:null);
+      const saved = localStorage.getItem(`lesson_draft_${user.id}_${lessonNum}_${day}`);
+      if (saved) { try { setAnswers(JSON.parse(saved)); } catch {} }
     })();
   },[lessonNum,day]);
+
+  useEffect(()=>{
+    if (!lesson || submitted || Object.keys(answers).length === 0) return;
+    localStorage.setItem(draftKey, JSON.stringify(answers));
+    setDraftSaved(true);
+    const t = setTimeout(() => setDraftSaved(false), 2000);
+    return () => clearTimeout(t);
+  },[answers]);
 
   const checkAnswers = async () => {
     setEvalLoading(true);
@@ -644,6 +670,7 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
     setEvalLoading(false);
     setFeedback(result);
     setSubmitted(true);
+    localStorage.removeItem(draftKey);
     await saveLesson(user.id, { lesson_num:lessonNum, day, answers, feedback:result, created_at:new Date().toISOString() });
   };
 
@@ -764,6 +791,7 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
           </div>
         )}
 
+        {draftSaved && <div style={{ textAlign:"center", fontSize:12, color:C.sage, marginBottom:8 }}>✓ Draft saved</div>}
         {evalLoading && <Spinner label="Getting your feedback..."/>}
         {!submitted ? (
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`), width:"100%", justifyContent:"center", padding:14 }} onClick={checkAnswers} disabled={evalLoading}>
@@ -787,8 +815,10 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
+  const [draftSaved, setDraftSaved] = useState(false);
   const speech = useSpeech();
   const skill = SKILLS[(lessonNum-1)%SKILLS.length];
+  const draftKey = `test_draft_${user.id}_${lessonNum}_${attemptNum}`;
 
   useEffect(()=>{
     (async()=>{
@@ -796,8 +826,18 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
       const r = await generateTest(user.profile, lessonNum, attemptNum, skill);
       setLoading(false);
       setTest(r.type==="test"?r:null);
+      const saved = localStorage.getItem(`test_draft_${user.id}_${lessonNum}_${attemptNum}`);
+      if (saved) { try { setAnswers(JSON.parse(saved)); } catch {} }
     })();
   },[lessonNum,attemptNum]);
+
+  useEffect(()=>{
+    if (!test || submitted || Object.keys(answers).length === 0) return;
+    localStorage.setItem(draftKey, JSON.stringify(answers));
+    setDraftSaved(true);
+    const t = setTimeout(() => setDraftSaved(false), 2000);
+    return () => clearTimeout(t);
+  },[answers]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -807,6 +847,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
     const ev = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, application:aAnswers, writing:answers.writing, speaking:answers.speaking }, true);
     const record = { lesson_num:lessonNum, skill, attempt_num:attemptNum, scores:ev.scores, passed:ev.passed, answers, feedback:ev.feedback, created_at:new Date().toISOString() };
     await saveTest(user.id, record);
+    localStorage.removeItem(draftKey);
     setResult(ev); setSubmitted(true); setSubmitting(false);
   };
 
@@ -890,6 +931,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
             </div>
           )}
 
+          {draftSaved && <div style={{ textAlign:"center", fontSize:12, color:C.sage, marginBottom:8 }}>✓ Draft saved</div>}
           {submitting && <Spinner label="Evaluating your test..."/>}
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.coral},${C.error})`), width:"100%", justifyContent:"center", padding:14 }} onClick={submit} disabled={submitting}>
             📤 Submit Test
