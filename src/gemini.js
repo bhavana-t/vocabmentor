@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PASTE YOUR GEMINI API KEY BELOW
 // ─────────────────────────────────────────────────────────────────────────────
-const GEMINI_KEY = "AQ.Ab8RN6JE0Ar0PiCmKTbMcZXhOQzy0T2MplO2cZ1mf80-k3RTaA"; // ← paste your AIza... key here
+const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
 
 const SYSTEM = `You are VocabMentor, an intelligent adaptive English language tutor helping users build vocabulary, writing, speaking skills and confidence.
