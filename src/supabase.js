@@ -201,7 +201,7 @@ export async function saveLesson(uid, record) {
 }
 
 export async function getUserLessons(uid) {
-  const { data } = await supabase.from("lessons").select("*").eq("user_id", uid).order("created_at");
+  const { data } = await supabase.from("lessons").select("*").eq("user_id", uid).order("created_at", { ascending: false });
   return data || [];
 }
 

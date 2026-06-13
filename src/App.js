@@ -1101,16 +1101,20 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay }) {
 // ── History ───────────────────────────────────────────────────────────────────
 function HistoryView({ user }) {
   const [tab, setTab] = useState("tests");
+  const [expandedLessons, setExpandedLessons] = useState({});
   const tests = (user.tests||[]).slice().reverse();
   const essays = (user.essays||[]).slice().reverse();
+  const lessons = (user.lessons||[]).slice();
+
+  const toggleLesson = (i) => setExpandedLessons(prev => ({ ...prev, [i]: !prev[i] }));
 
   return (
     <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
       <h2 style={S.h2}>📋 My History</h2>
-      <div style={{ display:"flex", gap:8, marginBottom:20 }}>
-        {["tests","essays"].map(t=>(
-          <button key={t} onClick={()=>setTab(t)} style={{ ...S.btn(tab===t?`rgba(0,180,216,0.2)`:"rgba(255,255,255,0.06)"), border:tab===t?`1px solid ${C.teal}44`:"1px solid transparent", textTransform:"capitalize" }}>
-            {t==="tests"?"📝 Tests":"✍️ Essays"}
+      <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        {[["tests","📝 Tests"],["lessons","📖 Lessons"],["essays","✍️ Essays"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setTab(key)} style={{ ...S.btn(tab===key?`rgba(0,180,216,0.2)`:"rgba(255,255,255,0.06)"), border:tab===key?`1px solid ${C.teal}44`:"1px solid transparent" }}>
+            {label}
           </button>
         ))}
       </div>
@@ -1137,6 +1141,100 @@ function HistoryView({ user }) {
           {t.answers?.writing && <div style={{ marginTop:10, fontSize:13, color:C.sky, fontStyle:"italic", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10 }}>"{t.answers.writing.slice(0,150)}..."</div>}
         </div>
       )))}
+
+      {tab==="lessons" && (lessons.length===0 ? <Alert type="info">No completed lessons yet — start learning!</Alert> : lessons.map((l,i)=>{
+        const skill = l.skill || SKILLS[((l.lesson_num||1)-1)%SKILLS.length];
+        const expanded = !!expandedLessons[i];
+        const totalScore = l.feedback?.scores?.total ?? l.feedback?.scores?.knowledge ?? null;
+        return (
+          <div key={i} style={{ ...S.card, marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, marginBottom:2 }}>Lesson {l.lesson_num} — {skill}</div>
+                <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>
+                  {l.day===1?"📖 Day 1 — Learn":"✏️ Day 2 — Practice"} · {new Date(l.created_at).toLocaleString()}
+                </div>
+                {totalScore !== null && (
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:totalScore>=75?C.sage:totalScore>=60?C.warn:C.coral }}>{totalScore}%</span>
+                    <span style={{ fontSize:11, color:C.muted }}>overall</span>
+                  </div>
+                )}
+              </div>
+              <button onClick={()=>toggleLesson(i)} style={{ ...S.btn("rgba(255,255,255,0.06)"), padding:"4px 10px", fontSize:12, border:"1px solid rgba(255,255,255,0.1)", marginLeft:10, flexShrink:0 }}>
+                {expanded?"▲ Hide":"▼ Show"}
+              </button>
+            </div>
+
+            {expanded && (
+              <div style={{ marginTop:14, borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:14 }}>
+                {/* Exercise answers */}
+                {l.answers && Object.keys(l.answers).filter(k=>k!=="writing"&&k!=="speaking").length>0 && (
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:6 }}>Exercise Answers</div>
+                    {Object.entries(l.answers).filter(([k])=>k!=="writing"&&k!=="speaking").map(([k,v])=>(
+                      <div key={k} style={{ fontSize:12, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:"6px 10px", marginBottom:4 }}>
+                        <span style={{ color:C.muted }}>Q{Number(k)+1}: </span>{v}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Writing */}
+                {l.answers?.writing && (
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:6 }}>✍️ Writing Response</div>
+                    <div style={{ fontSize:13, fontStyle:"italic", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10, lineHeight:1.6 }}>{l.answers.writing}</div>
+                  </div>
+                )}
+
+                {/* Speaking */}
+                {l.answers?.speaking && (
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:6 }}>🎤 Speaking Transcript</div>
+                    <div style={{ fontSize:13, fontStyle:"italic", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10, lineHeight:1.6 }}>{l.answers.speaking}</div>
+                  </div>
+                )}
+
+                {/* Feedback */}
+                {l.feedback?.type==="evaluation" && (
+                  <div>
+                    {l.feedback.feedback?.strengths?.length>0 && (
+                      <div style={{ marginBottom:10 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.sage, marginBottom:4 }}>Strengths</div>
+                        {l.feedback.feedback.strengths.map((s,j)=><div key={j} style={{ fontSize:12, color:C.sky, marginBottom:2 }}>• {s}</div>)}
+                      </div>
+                    )}
+                    {l.feedback.feedback?.improvements?.length>0 && (
+                      <div style={{ marginBottom:10 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.warn, marginBottom:4 }}>Areas to Improve</div>
+                        {l.feedback.feedback.improvements.map((s,j)=><div key={j} style={{ fontSize:12, color:C.sky, marginBottom:2 }}>• {s}</div>)}
+                      </div>
+                    )}
+                    {l.feedback.feedback?.corrections?.length>0 && (
+                      <div style={{ marginBottom:10 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.coral, marginBottom:6 }}>Corrections</div>
+                        {l.feedback.feedback.corrections.map((c,j)=>(
+                          <div key={j} style={{ fontSize:12, background:"rgba(255,255,255,0.04)", borderRadius:6, padding:"6px 10px", marginBottom:4 }}>
+                            <div style={{ color:C.error }}>✗ {c.original}</div>
+                            <div style={{ color:C.sage }}>✓ {c.corrected}</div>
+                            <div style={{ color:C.muted, marginTop:2 }}>{c.explanation}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {l.feedback.encouragement && (
+                      <div style={{ fontSize:13, fontStyle:"italic", color:C.gold, background:"rgba(255,200,0,0.06)", borderRadius:8, padding:10 }}>
+                        {l.feedback.encouragement}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }))}
 
       {tab==="essays" && (essays.length===0 ? <Alert type="info">No essays yet — start one from the dashboard!</Alert> : essays.map((e,i)=>(
         <div key={i} style={{ ...S.card, marginBottom:12 }}>
