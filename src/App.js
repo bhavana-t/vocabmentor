@@ -63,7 +63,18 @@ function ScoreBar({ label, score }) {
   </div>;
 }
 function SpeakButton({ text }) {
-  return <button onClick={()=>{ const u=new SpeechSynthesisUtterance(text); u.rate=0.85; u.lang="en-US"; window.speechSynthesis?.speak(u); }} style={{ ...S.btn(C.royal), padding:"5px 10px", fontSize:12 }}>🔊 Hear</button>;
+  const [playing, setPlaying] = React.useState(false);
+  const stop = () => { window.speechSynthesis?.cancel(); setPlaying(false); };
+  const speak = () => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.85; u.lang = "en-US";
+    u.onend = () => setPlaying(false);
+    window.speechSynthesis?.speak(u);
+    setPlaying(true);
+  };
+  return playing
+    ? <button onClick={stop} style={{ ...S.btn(C.royal), padding:"5px 10px", fontSize:12, background:"#e05555", borderColor:"#e05555" }}>⏹ Stop</button>
+    : <button onClick={speak} style={{ ...S.btn(C.royal), padding:"5px 10px", fontSize:12 }}>🔊 Hear</button>;
 }
 
 // ── Speech hook ───────────────────────────────────────────────────────────────
