@@ -1368,7 +1368,7 @@ function AdminView({ onBack }) {
               </div>
               <div style={{ textAlign:"right" }}>
                 {avg!==null && <div style={{ fontWeight:700, color:avg>=75?C.sage:C.warn }}>{avg}%</div>}
-                <div style={{ fontSize:11, color:C.muted }}>{tests.length} tests · {(u.essays||[]).length} essays</div>
+                <div style={{ fontSize:11, color:C.muted }}>{(u.lessons||[]).length} lessons · {tests.length} tests · {(u.essays||[]).length} essays</div>
               </div>
             </div>
           </div>
