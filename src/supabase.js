@@ -134,17 +134,22 @@ export async function onAuthChange(callback) {
         return;
       }
       if (session?.user) {
+        const uid = session.user.id;
+        const timeoutId = setTimeout(() => { console.warn("Auth data fetch timed out"); callback(null); }, 8000);
         try {
-          const row = await waitForUserRow(session.user.id);
+          const row = await waitForUserRow(uid);
           if (row) {
-            const tests = await getUserTests(session.user.id);
-            const lessons = await getUserLessons(session.user.id);
-            const essays = await getUserEssays(session.user.id);
+            const tests = await getUserTests(uid);
+            const lessons = await getUserLessons(uid);
+            const essays = await getUserEssays(uid);
+            clearTimeout(timeoutId);
             callback({ ...row, tests, lessons, essays });
           } else {
+            clearTimeout(timeoutId);
             callback(null);
           }
         } catch (e) {
+          clearTimeout(timeoutId);
           console.error("Auth change error:", e);
           callback(null);
         }

@@ -1387,7 +1387,9 @@ export default function App() {
 
   useEffect(()=>{
     let sub;
+    const authTimeout = setTimeout(() => setAuthLoading(false), 10000);
     onAuthChange(async u => {
+      clearTimeout(authTimeout);
       setAuthLoading(false);
       if (u) {
         setUser(u);
@@ -1400,7 +1402,7 @@ export default function App() {
         setScreen("landing");
       }
     }).then(s=>{ sub=s; });
-    return ()=>{ sub?.unsubscribe(); };
+    return ()=>{ clearTimeout(authTimeout); sub?.unsubscribe(); };
   },[]);
 
   const handleLogin = (u) => {
