@@ -238,7 +238,8 @@ export async function getAllUsers() {
   if (!data) return [];
   return await Promise.all(data.map(async u => {
     const tests = await getUserTests(u.id);
+    const lessons = await getUserLessons(u.id);
     const essays = await getUserEssays(u.id);
-    return { ...u, tests, essays };
+    return { ...u, tests, lessons, essays };
   }));
 }

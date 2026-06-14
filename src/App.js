@@ -1290,7 +1290,7 @@ function AdminView({ onBack }) {
             {u.profile?.grade && <Badge color={C.coral}>Grade {u.profile.grade}</Badge>}
             {u.profile?.career && <Badge color={C.mint}>{u.profile.career}</Badge>}
           </div>
-          <div style={{ fontSize:13, color:C.sky }}>Lesson {u.current_lesson||1} · Day {u.current_day||1} · {(u.tests||[]).length} tests · {(u.essays||[]).length} essays · Streak {u.streak||0} 🔥</div>
+          <div style={{ fontSize:13, color:C.sky }}>Lesson {u.current_lesson||1} · Day {u.current_day||1} · {(u.lessons||[]).length} lessons · {(u.tests||[]).length} tests · {(u.essays||[]).length} essays · Streak {u.streak||0} 🔥</div>
           {u.email && <div style={{ fontSize:12, marginTop:4, color:C.muted }}>📧 {u.email}</div>}
         </div>
 
@@ -1305,6 +1305,25 @@ function AdminView({ onBack }) {
             {t.answers?.writing && <div style={{ marginTop:6, fontSize:12, fontStyle:"italic", color:C.sky }}>"{t.answers.writing.slice(0,100)}..."</div>}
           </div>
         ))}
+
+        <h3 style={{ ...S.h3, marginTop:20 }}>Lessons ({(u.lessons||[]).length})</h3>
+        {(u.lessons||[]).length===0 ? <Alert type="info">No lessons.</Alert> : (u.lessons||[]).map((l,i)=>{
+          const skill = l.skill || SKILLS[((l.lesson_num||1)-1)%SKILLS.length];
+          const totalScore = l.feedback?.scores?.total ?? l.feedback?.scores?.knowledge ?? null;
+          return (
+            <div key={i} style={{ ...S.card, marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                <div><strong>Lesson {l.lesson_num}</strong> — {skill}</div>
+                {totalScore !== null && <Badge color={totalScore>=75?C.sage:totalScore>=60?C.warn:C.error}>{totalScore}%</Badge>}
+              </div>
+              <div style={{ fontSize:12, color:C.muted, marginBottom:4 }}>
+                {l.day===1?"📖 Day 1 — Learn":"✏️ Day 2 — Practice"} · {new Date(l.created_at).toLocaleString()}
+              </div>
+              {l.answers?.writing && <div style={{ fontSize:12, fontStyle:"italic", color:C.sky }}>"{l.answers.writing.slice(0,100)}..."</div>}
+              {l.feedback?.feedback?.strengths?.length>0 && <div style={{ fontSize:11, color:C.sage, marginTop:4 }}>✓ {l.feedback.feedback.strengths[0]}</div>}
+            </div>
+          );
+        })}
 
         <h3 style={{ ...S.h3, marginTop:20 }}>Essays ({(u.essays||[]).length})</h3>
         {(u.essays||[]).length===0 ? <Alert type="info">No essays.</Alert> : (u.essays||[]).map((e,i)=>(
