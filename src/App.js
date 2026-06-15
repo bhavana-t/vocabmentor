@@ -1147,8 +1147,9 @@ function HistoryView({ user, onRetry }) {
                 <div style={{ fontSize:18, fontWeight:800, color:t.passed?C.sage:C.coral, marginTop:4 }}>{t.scores?.total||0}%</div>
               </div>
               <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
-                <Badge color={t.passed?C.sage:C.error}>{t.passed?"✓ PASS":"✗ RETRY"}</Badge>
-                {!t.passed && onRetry && <button onClick={()=>onRetry(t.lesson_num)} style={{ ...S.btn(C.error), padding:"4px 10px", fontSize:12 }}>🔄 Retry</button>}
+                {t.passed
+                  ? <Badge color={C.sage}>✓ PASSED</Badge>
+                  : onRetry && <button onClick={()=>onRetry(t.lesson_num)} style={{ ...S.btn(C.error), padding:"4px 10px", fontSize:12 }}>🔄 Retry</button>}
               </div>
             </div>
             {t.scores && (
