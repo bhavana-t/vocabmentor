@@ -63,7 +63,7 @@ function ScoreBar({ label, score }) {
   </div>;
 }
 function SpeakButton({ text }) {
-  const [playing, setPlaying] = React.useState(false);
+  const [playing, setPlaying] = useState(false);
   const stop = () => { window.speechSynthesis?.cancel(); setPlaying(false); };
   const speak = () => {
     const u = new SpeechSynthesisUtterance(text);
