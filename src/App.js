@@ -1110,14 +1110,20 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay }) {
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
-function HistoryView({ user }) {
+function HistoryView({ user, onRetry }) {
   const [tab, setTab] = useState("tests");
   const [expandedLessons, setExpandedLessons] = useState({});
-  const tests = (user.tests||[]).slice().reverse();
-  const essays = (user.essays||[]).slice().reverse();
-  const lessons = (user.lessons||[]).slice();
+  const [expandedTests, setExpandedTests] = useState({});
+  const [localUser, setLocalUser] = useState(user);
+
+  useEffect(()=>{ getUserData(user.id).then(fresh=>{ if(fresh) setLocalUser(fresh); }); },[user.id]);
+
+  const tests = (localUser.tests||[]).slice().reverse();
+  const essays = (localUser.essays||[]).slice().reverse();
+  const lessons = (localUser.lessons||[]).slice();
 
   const toggleLesson = (i) => setExpandedLessons(prev => ({ ...prev, [i]: !prev[i] }));
+  const toggleTest = (i) => setExpandedTests(prev => ({ ...prev, [i]: !prev[i] }));
 
   return (
     <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
@@ -1130,28 +1136,71 @@ function HistoryView({ user }) {
         ))}
       </div>
 
-      {tab==="tests" && (tests.length===0 ? <Alert type="info">No tests yet!</Alert> : tests.map((t,i)=>(
-        <div key={i} style={{ ...S.card, marginBottom:12 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
-            <div>
-              <div style={{ fontWeight:700 }}>Lesson {t.lesson_num} — {t.skill}</div>
-              <div style={{ fontSize:12, color:C.muted }}>{new Date(t.created_at).toLocaleString()} · Attempt {t.attempt_num}</div>
+      {tab==="tests" && (tests.length===0 ? <Alert type="info">No tests yet!</Alert> : tests.map((t,i)=>{
+        const expanded = !!expandedTests[i];
+        return (
+          <div key={i} style={{ ...S.card, marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700 }}>Lesson {t.lesson_num} — {t.skill}</div>
+                <div style={{ fontSize:12, color:C.muted }}>{new Date(t.created_at).toLocaleString()} · Attempt {t.attempt_num}</div>
+                <div style={{ fontSize:18, fontWeight:800, color:t.passed?C.sage:C.coral, marginTop:4 }}>{t.scores?.total||0}%</div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                <Badge color={t.passed?C.sage:C.error}>{t.passed?"✓ PASS":"✗ RETRY"}</Badge>
+                {!t.passed && onRetry && <button onClick={()=>onRetry(t.lesson_num)} style={{ ...S.btn(C.error), padding:"4px 10px", fontSize:12 }}>🔄 Retry</button>}
+              </div>
             </div>
-            <Badge color={t.passed?C.sage:C.error}>{t.passed?"✓ PASSED":"✗ RETRY"}</Badge>
+            {t.scores && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:10 }}>
+                {Object.entries(t.scores).filter(([k])=>k!=="total").map(([k,v])=>(
+                  <div key={k} style={{ background:"rgba(255,255,255,0.05)", borderRadius:8, padding:8, textAlign:"center" }}>
+                    <div style={{ fontSize:15, fontWeight:800, color:v>=75?C.sage:v>=60?C.warn:C.error }}>{v}%</div>
+                    <div style={{ fontSize:10, color:C.muted, textTransform:"capitalize" }}>{k}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={()=>toggleTest(i)} style={{ ...S.btn("rgba(255,255,255,0.06)"), padding:"4px 10px", fontSize:12, border:"1px solid rgba(255,255,255,0.1)", marginBottom:expanded?10:0 }}>
+              {expanded?"▲ Hide Details":"▼ Show Details"}
+            </button>
+            {expanded && (
+              <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:12 }}>
+                {t.feedback?.strengths?.length>0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.sage, marginBottom:4 }}>Strengths</div>
+                    {t.feedback.strengths.map((s,j)=><div key={j} style={{ fontSize:12, color:C.sky, marginBottom:2 }}>• {s}</div>)}
+                  </div>
+                )}
+                {t.feedback?.improvements?.length>0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.warn, marginBottom:4 }}>Areas to Improve</div>
+                    {t.feedback.improvements.map((s,j)=><div key={j} style={{ fontSize:12, color:C.sky, marginBottom:2 }}>• {s}</div>)}
+                  </div>
+                )}
+                {t.feedback?.corrections?.length>0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.coral, marginBottom:6 }}>Corrections</div>
+                    {t.feedback.corrections.map((c,j)=>(
+                      <div key={j} style={{ fontSize:12, background:"rgba(255,255,255,0.04)", borderRadius:6, padding:"6px 10px", marginBottom:4 }}>
+                        <div style={{ color:C.error }}>✗ {c.original}</div>
+                        <div style={{ color:C.sage }}>✓ {c.corrected}</div>
+                        <div style={{ color:C.muted, marginTop:2 }}>{c.explanation}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {t.answers?.writing && (
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:4 }}>✍️ Writing Answer</div>
+                    <div style={{ fontSize:13, fontStyle:"italic", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10, lineHeight:1.6 }}>{t.answers.writing}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {t.scores && (
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
-              {Object.entries(t.scores).filter(([k])=>k!=="total").map(([k,v])=>(
-                <div key={k} style={{ background:"rgba(255,255,255,0.05)", borderRadius:8, padding:8, textAlign:"center" }}>
-                  <div style={{ fontSize:15, fontWeight:800, color:v>=75?C.sage:v>=60?C.warn:C.error }}>{v}%</div>
-                  <div style={{ fontSize:10, color:C.muted, textTransform:"capitalize" }}>{k}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {t.answers?.writing && <div style={{ marginTop:10, fontSize:13, color:C.sky, fontStyle:"italic", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10 }}>"{t.answers.writing.slice(0,150)}..."</div>}
-        </div>
-      )))}
+        );
+      }))}
 
       {tab==="lessons" && (lessons.length===0 ? <Alert type="info">No completed lessons yet — start learning!</Alert> : lessons.map((l,i)=>{
         const skill = l.skill || SKILLS[((l.lesson_num||1)-1)%SKILLS.length];
@@ -1435,7 +1484,12 @@ export default function App() {
     setScreen(newDay<=2?"lesson":"test");
   };
 
+  const [retryLessonNum, setRetryLessonNum] = useState(null);
+
+  const handleRetry = (ln) => { setRetryLessonNum(ln); setScreen("test"); };
+
   const handleTestResult = async (result) => {
+    setRetryLessonNum(null);
     const fresh = await advanceLesson(user.id, result.passed);
     setUser(fresh);
     setScreen("dashboard");
@@ -1443,7 +1497,8 @@ export default function App() {
 
   const lessonNum = user?.current_lesson||1;
   const day = user?.current_day||1;
-  const attemptNum = (user?.tests||[]).filter(t=>t.lesson_num===lessonNum).length+1;
+  const testLessonNum = retryLessonNum || lessonNum;
+  const attemptNum = (user?.tests||[]).filter(t=>t.lesson_num===testLessonNum).length+1;
   const nav = s => setScreen(s);
 
   return (
@@ -1470,8 +1525,8 @@ export default function App() {
       {screen==="setup" && user && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
       {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")}/>}
       {screen==="lesson" && user && <LessonView user={user} lessonNum={lessonNum} day={day} onDayComplete={handleDayComplete}/>}
-      {screen==="test" && user && <TestView user={user} lessonNum={lessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
-      {screen==="history" && user && <HistoryView user={user}/>}
+      {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
+      {screen==="history" && user && <HistoryView user={user} onRetry={handleRetry}/>}
       {screen==="essay" && user && <EssayView user={user} onBack={()=>nav("dashboard")}/>}
       {screen==="admin" && <AdminView onBack={()=>setScreen("landing")}/>}
       {screen==="guest" && (
