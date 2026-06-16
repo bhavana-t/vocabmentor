@@ -4,7 +4,15 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://avoudytkqdajuogtdhln.supabase.co";
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storage: window.localStorage,
+    storageKey: 'vocabmentor-auth'
+  }
+});
 
 // ── Helper: retry fetching user row ──────────────────────────────────────────
 async function waitForUserRow(uid, retries = 8, delay = 600) {
@@ -129,7 +137,7 @@ export async function logoutUser() {
 export async function onAuthChange(callback) {
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
     async (event, session) => {
-      if (event === "SIGNED_UP" || event === "INITIAL_SESSION") {
+      if (event === "SIGNED_UP") {
         callback(null);
         return;
       }

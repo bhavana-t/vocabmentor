@@ -2,6 +2,7 @@
 // src/App.js
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
+  supabase,
   registerUser, loginUser, logoutUser, onAuthChange,
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
   advanceDay, advanceLesson, getAllUsers, getUserData
@@ -1445,19 +1446,43 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const didLoginRef = useRef(false);
+  const hasRestoredRef = useRef(false);
 
   useEffect(()=>{
     let sub;
-    const authTimeout = setTimeout(() => setAuthLoading(false), 10000);
+    const bail = () => { setAuthLoading(false); setScreen("landing"); };
+    const authTimeout = setTimeout(bail, 5000);
+
+    (async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) { clearTimeout(authTimeout); bail(); return; }
+        const now = Math.floor(Date.now() / 1000);
+        if (session.expires_at && session.expires_at < now) {
+          const { error: refreshErr } = await supabase.auth.refreshSession();
+          if (refreshErr) {
+            await supabase.auth.signOut();
+            localStorage.removeItem('vocabmentor-auth');
+            clearTimeout(authTimeout); bail(); return;
+          }
+        }
+      } catch (e) {
+        console.error("Session recovery error:", e);
+        localStorage.removeItem('vocabmentor-auth');
+        clearTimeout(authTimeout); bail(); return;
+      }
+    })();
+
     onAuthChange(async u => {
       clearTimeout(authTimeout);
       setAuthLoading(false);
       if (u) {
         setUser(u);
-        if (didLoginRef.current) {
+        if (didLoginRef.current || !hasRestoredRef.current) {
           setScreen(u.profile ? "dashboard" : "setup");
-          didLoginRef.current = false;
         }
+        didLoginRef.current = false;
+        hasRestoredRef.current = true;
       } else {
         setUser(null);
         setScreen("landing");
