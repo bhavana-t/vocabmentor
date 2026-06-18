@@ -9,7 +9,7 @@ import {
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
-  assessLevel, generateEssayTopic, evaluateEssay
+  assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson
 } from "./gemini";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -819,6 +819,180 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   );
 }
 
+// ── Extended Lesson View ──────────────────────────────────────────────────────
+function ExtendedLessonView({ user, context, onComplete }) {
+  const { lessonNum, skill, weakAreas, iteration, count } = context;
+  const [lesson, setLesson] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [answers, setAnswers] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const speech = useSpeech();
+
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true); setLesson(null); setAnswers({}); setSubmitted(false); setFeedback(null);
+      const r = await generateExtendedLesson(user.profile, skill, weakAreas);
+      setLoading(false);
+      setLesson(r.type==="lesson"?r:null);
+    })();
+  },[lessonNum, iteration]);
+
+  const submit = async () => {
+    setEvalLoading(true);
+    const kAnswers = lesson.exercises?.map((ex,i)=>({ q:ex.question, given:answers[i]||"", correct:ex.answer }));
+    const result = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, writing:answers.writing, speaking:answers.speaking });
+    setFeedback(result);
+    setSubmitted(true);
+    setEvalLoading(false);
+    await saveLesson(user.id, { lesson_num:lessonNum, day:0, skill, is_extended:true, answers, feedback:result, created_at:new Date().toISOString() });
+  };
+
+  if (loading) return <div style={{ padding:40 }}><Spinner label={`Generating Extra Practice — ${skill}...`}/></div>;
+  if (!lesson) return <div style={{ padding:24 }}><Alert type="error">Could not load lesson. Please refresh.</Alert></div>;
+
+  return (
+    <div style={{ paddingBottom:80 }}>
+      <div style={{ background:`linear-gradient(135deg,${C.gold}55,${C.navy})`, padding:"20px 24px", marginBottom:20 }}>
+        <div style={{ maxWidth:720, margin:"0 auto" }}>
+          <Badge color={C.gold}>📚 EXTRA PRACTICE — {skill.toUpperCase()}</Badge>
+          <h2 style={{ ...S.h2, marginTop:8, marginBottom:0 }}>{lesson.title}</h2>
+          <p style={{ fontSize:13, color:C.sky, marginTop:4 }}>Focused on: {weakAreas?.length?weakAreas.join(", "):"key concepts"}</p>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:720, margin:"0 auto", padding:"0 16px" }}>
+        {!submitted ? <>
+          <div style={{ ...S.card, marginBottom:16 }}>
+            <h3 style={S.h3}>📘 Targeted Explanation</h3>
+            <p style={{ fontSize:15, lineHeight:1.7 }}>{lesson.explanation}</p>
+            {lesson.examples?.length>0 && <>
+              <div style={{ fontWeight:700, marginTop:12, marginBottom:6, color:C.sky }}>Examples:</div>
+              {lesson.examples.map((ex,i)=><div key={i} style={{ background:"rgba(244,162,97,0.1)", borderLeft:`3px solid ${C.gold}`, padding:"8px 12px", marginBottom:6, borderRadius:"0 8px 8px 0", fontSize:14 }}>{ex}</div>)}
+            </>}
+          </div>
+
+          {lesson.vocabulary?.length>0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📖 Key Words</h3>
+              {lesson.vocabulary.map((v,i)=>(
+                <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:14, marginBottom:10 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                    <span style={{ fontWeight:800, fontSize:17, color:C.gold }}>{v.word}</span>
+                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                      <span style={{ fontSize:13, color:C.muted }}>{v.phonetic}</span>
+                      <SpeakButton text={v.word}/>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:14, color:C.sky, marginBottom:4 }}><strong>Meaning:</strong> {v.meaning}</div>
+                  <div style={{ fontSize:14, fontStyle:"italic" }}>{v.example}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {lesson.exercises?.length>0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>✏️ Practice Exercises</h3>
+              {lesson.exercises.map((ex,i)=>(
+                <div key={i} style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>Q{i+1}. {ex.question}</div>
+                  {ex.type==="mcq"&&ex.options ? (
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {ex.options.map((opt,j)=>(
+                        <label key={j} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:answers[i]===opt?"rgba(244,162,97,0.15)":"rgba(255,255,255,0.04)", cursor:"pointer", fontSize:14, border:`1px solid ${answers[i]===opt?C.gold:"transparent"}` }}>
+                          <input type="radio" name={`eq${i}`} value={opt} checked={answers[i]===opt} onChange={()=>setAnswers({...answers,[i]:opt})} style={{ accentColor:C.gold }}/>
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <input style={S.input} placeholder="Your answer..." value={answers[i]||""} onChange={e=>setAnswers({...answers,[i]:e.target.value})}/>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ ...S.card, marginBottom:16 }}>
+            <h3 style={S.h3}>✍️ Writing Practice</h3>
+            <p style={{ fontSize:14, color:C.sky, marginBottom:10 }}>Write a short paragraph applying what you just reviewed.</p>
+            <textarea style={{ ...S.input, minHeight:120, resize:"vertical" }} placeholder="Start writing here..." value={answers.writing||""} onChange={e=>setAnswers({...answers,writing:e.target.value})}/>
+          </div>
+
+          {lesson.readAloudPassage && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🎤 Read Aloud</h3>
+              <div style={{ background:"rgba(244,162,97,0.08)", borderRadius:10, padding:16, marginBottom:14, fontSize:15, lineHeight:1.8, fontStyle:"italic" }}>{lesson.readAloudPassage}</div>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+                <SpeakButton text={lesson.readAloudPassage}/>
+                {!speech.listening
+                  ? <button style={S.btn(C.coral)} onClick={()=>{speech.reset();speech.start();}}>🎙 Start Recording</button>
+                  : <button style={S.btn(C.error)} onClick={speech.stop}>⏹ Stop</button>}
+              </div>
+              {speech.error && <Alert type="warn">⚠️ {speech.error}</Alert>}
+              {speech.transcript && <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:8, padding:10, fontSize:14, marginBottom:8 }}>📝 Heard: "{speech.transcript}"</div>}
+              <textarea style={{ ...S.input, minHeight:80 }} placeholder="Speaking transcript..." value={answers.speaking||speech.transcript} onChange={e=>setAnswers({...answers,speaking:e.target.value})}/>
+            </div>
+          )}
+
+          {evalLoading && <Spinner label="Getting your feedback..."/>}
+          <button style={{ ...S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`), width:"100%", justifyContent:"center", padding:14 }} onClick={submit} disabled={evalLoading}>
+            ✅ Submit Practice
+          </button>
+        </> : (
+          <div>
+            <div style={{ ...S.card, marginBottom:16, textAlign:"center", background:"rgba(244,162,97,0.08)" }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>✨</div>
+              <h2 style={{ ...S.h2, color:C.gold }}>Great Practice!</h2>
+              {feedback?.scores && (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, margin:"12px 0" }}>
+                  {Object.entries(feedback.scores).filter(([k])=>k!=="total").map(([k,v])=>(
+                    <div key={k} style={{ background:"rgba(255,255,255,0.05)", borderRadius:8, padding:8 }}>
+                      <div style={{ fontSize:14, fontWeight:800, color:v>=75?C.sage:v>=60?C.warn:C.error }}>{v}%</div>
+                      <div style={{ fontSize:10, color:C.muted, textTransform:"capitalize" }}>{k}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p style={{ color:C.sky, fontStyle:"italic" }}>{feedback?.encouragement}</p>
+            </div>
+
+            {feedback?.feedback?.corrections?.length>0 && (
+              <div style={{ ...S.card, marginBottom:16 }}>
+                <h3 style={S.h3}>✏️ Corrections</h3>
+                {feedback.feedback.corrections.map((c,i)=>(
+                  <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:8, padding:10, marginBottom:8, fontSize:13 }}>
+                    <div style={{ color:C.error }}>✗ {c.original}</div>
+                    <div style={{ color:C.sage }}>✓ {c.corrected}</div>
+                    <div style={{ color:C.muted, marginTop:4 }}>{c.explanation}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ ...S.card, marginBottom:16, background:"rgba(0,180,216,0.06)", border:`1px solid ${C.teal}33` }}>
+              <h3 style={{ ...S.h3, marginBottom:6 }}>Ready to Retest?</h3>
+              <p style={{ fontSize:14, color:C.sky, marginBottom:16 }}>
+                You've completed extra practice session #{(count||0)+1}. Retake the test when you feel ready, or do more practice first.
+              </p>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                <button style={{ ...S.btn(`linear-gradient(135deg,${C.sage},${C.teal})`), flex:1, justifyContent:"center", padding:12 }} onClick={()=>onComplete("retest")}>
+                  🎯 Retake Test Now
+                </button>
+                <button style={{ ...S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`), flex:1, justifyContent:"center", padding:12 }} onClick={()=>onComplete("more")}>
+                  📚 More Practice
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Test View ─────────────────────────────────────────────────────────────────
 function TestView({ user, lessonNum, attemptNum=1, onResult }) {
   const [test, setTest] = useState(null);
@@ -972,9 +1146,21 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
                 ))}
               </div>
             )}
-            <button style={{ ...S.btn(result.passed?`linear-gradient(135deg,${C.sage},${C.teal})`:`linear-gradient(135deg,${C.gold},${C.coral})`), width:"100%", justifyContent:"center", padding:14 }} onClick={()=>onResult(result)}>
-              {result.passed?"🚀 Unlock Next Lesson →":"🔄 Extend & Retry"}
-            </button>
+            {result.passed ? (
+              <button style={{ ...S.btn(`linear-gradient(135deg,${C.sage},${C.teal})`), width:"100%", justifyContent:"center", padding:14 }} onClick={()=>onResult(result,"pass")}>
+                🚀 Unlock Next Lesson →
+              </button>
+            ) : (
+              <div style={{ ...S.card, background:"rgba(244,162,97,0.08)", border:`1px solid ${C.gold}44` }}>
+                <p style={{ color:C.sky, fontSize:14, marginBottom:16, textAlign:"center" }}>No worries! You can take extra practice lessons to strengthen your understanding, or retake the test right now if you feel ready.</p>
+                <button style={{ ...S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`), width:"100%", justifyContent:"center", padding:14, marginBottom:10 }} onClick={()=>onResult(result,"extend")}>
+                  📚 Take More Lessons First <span style={{ fontSize:11, opacity:0.8 }}>(Recommended)</span>
+                </button>
+                <button style={{ ...S.btn("rgba(255,255,255,0.08)"), width:"100%", justifyContent:"center", padding:12, border:`1px solid rgba(255,255,255,0.15)` }} onClick={()=>onResult(result,"retest")}>
+                  🔄 Retake Test Now
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -983,7 +1169,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard({ user, onStartLesson, onViewHistory, onEssay }) {
+function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice }) {
   const p = user.profile;
   const tests = user.tests||[];
   const essays = user.essays||[];
@@ -993,6 +1179,10 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay }) {
   const avgScore = tests.length ? Math.round(tests.reduce((s,t)=>s+(t.scores?.total||0),0)/tests.length) : null;
   const passed = tests.filter(t=>t.passed).length;
   const pendingEssay = essays.find(e=>e.status==="pending_rewrite");
+  const currentLessonTests = tests.filter(t=>t.lesson_num===lessonNum);
+  const hasPassedCurrentTest = currentLessonTests.some(t=>t.passed);
+  const lastFailedTest = !hasPassedCurrentTest && currentLessonTests.length>0 ? currentLessonTests[currentLessonTests.length-1] : null;
+  const weakAreasStr = lastFailedTest ? Object.entries(lastFailedTest.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k).join(", ") : "";
 
   return (
     <div style={{ paddingBottom:80 }}>
@@ -1035,6 +1225,20 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay }) {
             </div>
           ))}
         </div>
+
+        {/* Failed test card */}
+        {lastFailedTest && (
+          <div style={{ background:`linear-gradient(135deg,${C.error}22,${C.navy})`, border:`1px solid ${C.error}44`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.coral, marginBottom:4 }}>⚠️ NEEDS MORE WORK</div>
+            <h3 style={{ ...S.h3, marginBottom:4 }}>Lesson {lessonNum} — {skill}</h3>
+            <div style={{ fontSize:13, color:C.sky, marginBottom:4 }}>Last score: {lastFailedTest.scores?.total||0}%</div>
+            {weakAreasStr && <div style={{ fontSize:13, color:C.muted, marginBottom:12 }}>Weak areas: {weakAreasStr}</div>}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              <button style={S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`)} onClick={onExtraPractice}>📚 Extra Practice</button>
+              <button style={{ ...S.btn("rgba(255,255,255,0.1)"), border:`1px solid rgba(255,255,255,0.15)` }} onClick={onStartLesson}>🔄 Retest</button>
+            </div>
+          </div>
+        )}
 
         {/* Next lesson */}
         <div style={{ background:`linear-gradient(135deg,${C.royal}cc,${C.teal}22)`, border:`1px solid ${C.teal}44`, borderRadius:16, padding:24, marginBottom:16 }}>
@@ -1511,14 +1715,55 @@ export default function App() {
   };
 
   const [retryLessonNum, setRetryLessonNum] = useState(null);
+  const [extendedContext, setExtendedContext] = useState(null);
 
   const handleRetry = (ln) => { setRetryLessonNum(ln); setScreen("test"); };
 
-  const handleTestResult = async (result) => {
-    setRetryLessonNum(null);
-    const fresh = await advanceLesson(user.id, result.passed);
+  const handleTestResult = async (result, action) => {
+    if (result.passed) {
+      setRetryLessonNum(null);
+      setExtendedContext(null);
+      const fresh = await advanceLesson(user.id, true);
+      setUser(fresh);
+      setScreen("dashboard");
+      return;
+    }
+    const fresh = await getUserData(user.id);
     setUser(fresh);
-    setScreen("dashboard");
+    const failedLessonNum = testLessonNum;
+    const weakAreas = Object.entries(result.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k);
+    if (action === "extend") {
+      setExtendedContext({
+        lessonNum: failedLessonNum,
+        skill: SKILLS[(failedLessonNum-1)%SKILLS.length],
+        weakAreas,
+        count: extendedContext?.lessonNum===failedLessonNum ? (extendedContext.count||0) : 0,
+        iteration: extendedContext?.lessonNum===failedLessonNum ? (extendedContext.iteration||0) : 0
+      });
+      setScreen("extended");
+    } else {
+      setRetryLessonNum(failedLessonNum);
+      setScreen("test");
+    }
+  };
+
+  const handleExtendedComplete = (action) => {
+    const newCtx = { ...extendedContext, count:(extendedContext?.count||0)+1, iteration:(extendedContext?.iteration||0)+1 };
+    setExtendedContext(newCtx);
+    if (action === "retest") {
+      setRetryLessonNum(newCtx.lessonNum);
+      setScreen("test");
+    } else {
+      setScreen("extended");
+    }
+  };
+
+  const handleExtraPracticeFromDashboard = () => {
+    const currentTests = (user.tests||[]).filter(t=>t.lesson_num===lessonNum);
+    const lastTest = currentTests[currentTests.length-1];
+    const weakAreas = lastTest ? Object.entries(lastTest.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k) : [];
+    setExtendedContext({ lessonNum, skill:SKILLS[(lessonNum-1)%SKILLS.length], weakAreas, count:0, iteration:0 });
+    setScreen("extended");
   };
 
   const lessonNum = user?.current_lesson||1;
@@ -1549,9 +1794,10 @@ export default function App() {
 
       {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} loading={authLoading}/>}
       {screen==="setup" && user && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
-      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")}/>}
+      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard}/>}
       {screen==="lesson" && user && <LessonView user={user} lessonNum={lessonNum} day={day} onDayComplete={handleDayComplete}/>}
       {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
+      {screen==="extended" && user && extendedContext && <ExtendedLessonView user={user} context={extendedContext} onComplete={handleExtendedComplete}/>}
       {screen==="history" && user && <HistoryView user={user} onRetry={handleRetry}/>}
       {screen==="essay" && user && <EssayView user={user} onBack={()=>nav("dashboard")}/>}
       {screen==="admin" && <AdminView onBack={()=>setScreen("landing")}/>}

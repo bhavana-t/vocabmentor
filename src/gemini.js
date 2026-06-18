@@ -102,6 +102,41 @@ Respond with this exact JSON:
 }`);
 }
 
+// ── Extended lesson generation ────────────────────────────────────────────────
+export async function generateExtendedLesson(profile, skill, weakAreas) {
+  const ctx = profile.type === "student"
+    ? `Student: ${profile.name}, Age ${profile.age}, Grade ${profile.grade}, Level: ${profile.level}. Goal: ${profile.goal}.`
+    : `Adult: ${profile.name}, Age ${profile.age}, Career: ${profile.career}, Level: ${profile.level}. Goal: ${profile.goal}.`;
+  const weak = weakAreas?.length ? weakAreas.join(", ") : "general " + skill;
+
+  return callGemini(`Generate an EXTRA PRACTICE remedial lesson.
+${ctx}
+Skill Focus: ${skill}. Target weak areas: ${weak}.
+Use DIFFERENT examples and exercises than a standard lesson. Label as "Extra Practice".
+
+Respond with this exact JSON:
+{
+  "type": "lesson",
+  "title": "string (include Extra Practice in title)",
+  "explanation": "string (focused only on the weak areas)",
+  "examples": ["string", "string", "string"],
+  "exercises": [
+    {"question":"string","type":"mcq","options":["a","b","c","d"],"answer":"string","hint":"string"},
+    {"question":"string","type":"fill","answer":"string","hint":"string"},
+    {"question":"string","type":"mcq","options":["a","b","c","d"],"answer":"string","hint":"string"},
+    {"question":"string","type":"fill","answer":"string","hint":"string"}
+  ],
+  "vocabulary": [
+    {"word":"string","phonetic":"string","meaning":"string","example":"string"},
+    {"word":"string","phonetic":"string","meaning":"string","example":"string"},
+    {"word":"string","phonetic":"string","meaning":"string","example":"string"}
+  ],
+  "speakingPrompt": "string",
+  "readAloudPassage": "string (2-3 sentences targeting the weak areas)",
+  "encouragement": "string"
+}`);
+}
+
 // ── Test generation ───────────────────────────────────────────────────────────
 export async function generateTest(profile, lessonNum, attemptNum, skill) {
   const ctx = profile.type === "student"
