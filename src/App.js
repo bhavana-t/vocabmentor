@@ -5,7 +5,7 @@ import {
   supabase,
   registerUser, loginUser, logoutUser, onAuthChange,
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
-  advanceDay, advanceLesson, getAllUsers, getUserData
+  advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
@@ -1169,7 +1169,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice }) {
+function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice, profileLoading }) {
   const p = user.profile;
   const tests = user.tests||[];
   const essays = user.essays||[];
@@ -1186,6 +1186,11 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
 
   return (
     <div style={{ paddingBottom:80 }}>
+      {profileLoading && (
+        <div style={{ background:"rgba(0,180,216,0.12)", borderBottom:"1px solid rgba(0,180,216,0.2)", padding:"8px 20px", fontSize:13, color:C.sky, textAlign:"center" }}>
+          ⏳ Loading your profile...
+        </div>
+      )}
       <div style={{ background:`linear-gradient(135deg,${C.royal},${C.navy})`, padding:"24px", marginBottom:20 }}>
         <div style={{ maxWidth:720, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12 }}>
           <div>
@@ -1659,6 +1664,7 @@ export default function App() {
 
     (async () => {
       try {
+        await clearStaleSession();
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error || !session) { clearTimeout(authTimeout); bail(); return; }
         const now = Math.floor(Date.now() / 1000);
@@ -1683,7 +1689,7 @@ export default function App() {
       if (u) {
         setUser(u);
         if (didLoginRef.current || !hasRestoredRef.current) {
-          setScreen(u.profile ? "dashboard" : "setup");
+          setScreen(u._dataLoading ? "dashboard" : (u.profile ? "dashboard" : "setup"));
         }
         didLoginRef.current = false;
         hasRestoredRef.current = true;
@@ -1698,10 +1704,29 @@ export default function App() {
   const handleLogin = (u) => {
     didLoginRef.current = true;
     setUser(u);
-    setScreen(u.profile ? "dashboard" : "setup");
+    setScreen(u._dataLoading ? "dashboard" : (u.profile ? "dashboard" : "setup"));
   };
+
+  useEffect(()=>{
+    if (!user?.id || !user?._dataLoading) return;
+    let cancelled = false, attempts = 0;
+    let timer;
+    const fetchFull = async () => {
+      attempts++;
+      try {
+        const full = await getUserData(user.id);
+        if (!cancelled) { setUser(full); if (!full.profile) setScreen("setup"); }
+      } catch (e) {
+        if (!cancelled && attempts < 5) timer = setTimeout(fetchFull, 3000);
+      }
+    };
+    timer = setTimeout(fetchFull, 1000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  },[user?.id, user?._dataLoading]);
+
   const handleLogout = async () => {
     didLoginRef.current = false;
+    hasRestoredRef.current = false;
     await logoutUser();
     setUser(null);
     setScreen("landing");
@@ -1794,7 +1819,7 @@ export default function App() {
 
       {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} loading={authLoading}/>}
       {screen==="setup" && user && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
-      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard}/>}
+      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} profileLoading={user?._dataLoading===true}/>}
       {screen==="lesson" && user && <LessonView user={user} lessonNum={lessonNum} day={day} onDayComplete={handleDayComplete}/>}
       {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
       {screen==="extended" && user && extendedContext && <ExtendedLessonView user={user} context={extendedContext} onComplete={handleExtendedComplete}/>}

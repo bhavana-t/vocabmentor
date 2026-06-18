@@ -107,31 +107,36 @@ export async function registerUser(email, password, username) {
 export async function loginUser(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
-
-  // Check if user row exists
-  const row = await waitForUserRow(data.user.id);
-  if (!row) {
-    // Create it if missing
-    await supabase.from("users").insert({
-      id: data.user.id,
-      username: email.split("@")[0],
-      email,
-      profile: null,
-      current_lesson: 1, current_day: 1,
-      streak: 0, last_active: null, badges: []
-    }).then(() => {}).catch(() => {});
-    const fresh = await waitForUserRow(data.user.id);
-    return { ...(fresh || {}), tests: [], lessons: [], essays: [] };
-  }
-
-  const tests = await getUserTests(data.user.id);
-  const lessons = await getUserLessons(data.user.id);
-  const essays = await getUserEssays(data.user.id);
-  return { ...row, tests, lessons, essays };
+  // Return immediately — App background-fetches full DB data
+  return {
+    id: data.user.id,
+    email: data.user.email,
+    username: data.user.email.split('@')[0],
+    profile: null,
+    current_lesson: 1, current_day: 1,
+    streak: 0, badges: [],
+    tests: [], lessons: [], essays: [],
+    _dataLoading: true
+  };
 }
 
 export async function logoutUser() {
   await supabase.auth.signOut();
+}
+
+export async function clearStaleSession() {
+  try {
+    const stored = localStorage.getItem('vocabmentor-auth');
+    if (!stored) return;
+    const parsed = JSON.parse(stored);
+    const expiresAt = parsed?.expires_at;
+    if (!expiresAt) return;
+    const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+    if (expiresAt < sevenDaysAgo) {
+      await supabase.auth.signOut();
+      localStorage.removeItem('vocabmentor-auth');
+    }
+  } catch (e) {}
 }
 
 export async function onAuthChange(callback) {
@@ -143,23 +148,28 @@ export async function onAuthChange(callback) {
       }
       if (session?.user) {
         const uid = session.user.id;
-        const timeoutId = setTimeout(() => { console.warn("Auth data fetch timed out"); callback(null); }, 8000);
+        // Unblock UI immediately with basic data
+        callback({
+          id: uid,
+          email: session.user.email,
+          username: session.user.email?.split('@')[0] || 'User',
+          profile: null,
+          current_lesson: 1, current_day: 1,
+          streak: 0, badges: [],
+          tests: [], lessons: [], essays: [],
+          _dataLoading: true
+        });
+        // Fetch full data in background and emit update
         try {
           const row = await waitForUserRow(uid);
           if (row) {
             const tests = await getUserTests(uid);
             const lessons = await getUserLessons(uid);
             const essays = await getUserEssays(uid);
-            clearTimeout(timeoutId);
             callback({ ...row, tests, lessons, essays });
-          } else {
-            clearTimeout(timeoutId);
-            callback(null);
           }
         } catch (e) {
-          clearTimeout(timeoutId);
-          console.error("Auth change error:", e);
-          callback(null);
+          console.error("Auth change background fetch error:", e);
         }
       } else {
         callback(null);
