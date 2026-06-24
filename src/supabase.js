@@ -143,7 +143,7 @@ export async function clearStaleSession() {
 export async function getBasicUser(uid) {
   const { data } = await supabase
     .from('users')
-    .select('id, username, email, profile, current_lesson, current_day, streak, badges, last_active')
+    .select('id, username, email, profile, current_lesson, current_day, streak, badges, last_active, created_at')
     .eq('id', uid)
     .maybeSingle();
   return data ? { ...data, tests: [], lessons: [], essays: [] } : null;

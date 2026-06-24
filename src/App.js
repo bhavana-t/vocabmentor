@@ -250,14 +250,22 @@ function ProfileSetup({ user, onComplete }) {
 
   const runAssessment = async () => {
     setLoading(true);
-    const result = await assessLevel({ ...form, type }, answers);
-    if (result.type==="assessment") {
-      const profile = { ...form, type, level:result.level, assessmentResult:result };
-      await saveProfile(user.id, profile);
-      setAssessment(result);
+    try {
+      const result = await assessLevel({ ...form, type }, answers);
+      if (result.type==="assessment") {
+        const profile = { ...form, type, level:result.level, assessmentResult:result };
+        await saveProfile(user.id, profile);
+        setAssessment(result);
+        setLoading(false);
+        // Show assessment result for 3.5s then navigate — profile is already saved
+        setTimeout(()=>onComplete({ ...user, profile, current_lesson:1, current_day:1 }), 3500);
+      } else {
+        setLoading(false);
+      }
+    } catch(e) {
+      console.error("Assessment/profile save error:", e);
       setLoading(false);
-      setTimeout(()=>onComplete({ ...user, profile, current_lesson:1, current_day:1 }), 3500);
-    } else setLoading(false);
+    }
   };
 
   if (step===0) return (
@@ -1872,6 +1880,20 @@ function AdminView({ onBack }) {
   );
 }
 
+// ── Setup guard ───────────────────────────────────────────────────────────────
+// Only show profile setup for genuinely new accounts — never for existing users
+// whose data hasn't loaded yet.
+function needsSetup(u) {
+  if (!u) return false;
+  if (u.profile) return false;                        // has profile → dashboard
+  if ((u.current_lesson || 1) > 1) return false;     // has progress → dashboard
+  if ((u.lessons?.length || 0) > 0) return false;    // has lesson history → dashboard
+  if ((u.tests?.length || 0) > 0) return false;      // has test history → dashboard
+  if (!u.created_at) return false;                   // no timestamp (skeleton) → dashboard
+  const ageMs = Date.now() - new Date(u.created_at).getTime();
+  return ageMs <= 5 * 60 * 1000;                     // only if account < 5 min old
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState("landing");
@@ -1908,7 +1930,7 @@ export default function App() {
               streak: 0, badges: [], tests: [], lessons: [], essays: []
             };
             setUser({ ...u, _dataLoading: true });
-            setScreen(u.profile ? "dashboard" : "setup");
+            setScreen(needsSetup(u) ? "setup" : "dashboard");
             hasRestoredRef.current = true;
           }
         } else {
@@ -1938,7 +1960,7 @@ export default function App() {
   const handleLogin = (u) => {
     didLoginRef.current = true;
     setUser(u);
-    setScreen(u.profile ? "dashboard" : "setup");
+    setScreen(needsSetup(u) ? "setup" : "dashboard");
   };
 
   // Phase 2: background full data load with sync status
@@ -1955,7 +1977,7 @@ export default function App() {
           setUser(full);
           setSyncStatus("synced");
           setTimeout(() => { if (!cancelled) setSyncStatus("idle"); }, 2000);
-          if (!full.profile) setScreen("setup");
+          if (needsSetup(full)) setScreen("setup");
         }
       } catch (e) {
         if (!cancelled) {
@@ -2070,7 +2092,8 @@ export default function App() {
       )}
 
       {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} loading={authLoading}/>}
-      {screen==="setup" && user && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
+      {screen==="setup" && user && needsSetup(user) && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
+      {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} profileLoading={user?._dataLoading===true}/>}
       {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} profileLoading={user?._dataLoading===true}/>}
       {screen==="lesson" && user && <LessonView user={user} lessonNum={lessonNum} day={day} onDayComplete={handleDayComplete}/>}
       {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
