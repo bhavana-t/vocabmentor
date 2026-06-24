@@ -350,7 +350,15 @@ function EssayView({ user, onBack }) {
 
   const loadTopic = async () => {
     setStage("loading");
-    const result = await generateEssayTopic(user.profile);
+    const pastMistakes = {
+      corrections: (user.tests?.flatMap(t => t.feedback?.corrections || []) || []).slice(-10),
+      weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
+        Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
+      ) || []).slice(-5),
+      improvements: (user.tests?.flatMap(t => t.feedback?.improvements || []) || []).slice(-5),
+      essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
+    };
+    const result = await generateEssayTopic(user.profile, pastMistakes);
     if (result.type==="essay_topic") { setTopic(result); setStage("topic"); }
   };
 
@@ -444,6 +452,15 @@ function EssayView({ user, onBack }) {
               <div style={{ fontWeight:700, fontSize:16, marginBottom:6 }}>{topic.title}</div>
               <p style={{ fontSize:14, color:C.sky, margin:0 }}>{topic.background}</p>
             </div>
+            {topic.focusPoint && (
+              <div style={{ background:"rgba(255,193,7,0.1)", border:`1px solid rgba(255,193,7,0.35)`, borderRadius:10, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:18 }}>🎯</span>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.gold, marginBottom:2 }}>FOCUS POINT FOR THIS ESSAY</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{topic.focusPoint}</div>
+                </div>
+              </div>
+            )}
             <p style={{ fontSize:14, marginBottom:12 }}>{topic.instructions}</p>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:12 }}>
               {[["📝 Introduction", topic.structure?.introduction],["📄 Body", topic.structure?.body],["🎯 Conclusion", topic.structure?.conclusion]].map(([t,d])=>(
@@ -652,6 +669,7 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   const [submitted, setSubmitted] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [reviewMistakes, setReviewMistakes] = useState([]);
   const speech = useSpeech();
   const skill = SKILLS[(lessonNum-1)%SKILLS.length];
   const draftKey = `lesson_draft_${user.id}_${lessonNum}_${day}`;
@@ -659,7 +677,16 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   useEffect(()=>{
     (async()=>{
       setLoading(true); setLesson(null); setAnswers({}); setSubmitted(false); setFeedback(null);
-      const result = await generateLesson(user.profile, lessonNum, day, skill);
+      const pastMistakes = {
+        corrections: (user.tests?.flatMap(t => t.feedback?.corrections || []) || []).slice(-10),
+        weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
+          Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
+        ) || []).slice(-5),
+        improvements: (user.tests?.flatMap(t => t.feedback?.improvements || []) || []).slice(-5),
+        essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
+      };
+      setReviewMistakes(pastMistakes.corrections.slice(-2));
+      const result = await generateLesson(user.profile, lessonNum, day, skill, pastMistakes);
       setLoading(false);
       setLesson(result.type==="lesson"?result:null);
       const saved = localStorage.getItem(`lesson_draft_${user.id}_${lessonNum}_${day}`);
@@ -703,6 +730,25 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
       </div>
 
       <div style={{ maxWidth:720, margin:"0 auto", padding:"0 16px" }}>
+        {/* Quick Review */}
+        {reviewMistakes.length>0 && (
+          <div style={{ background:`linear-gradient(135deg,rgba(255,193,7,0.15),rgba(255,152,0,0.1))`, border:`1px solid rgba(255,193,7,0.4)`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.gold, fontWeight:700, marginBottom:6, letterSpacing:"0.05em" }}>🔄 QUICK REVIEW</div>
+            <h3 style={{ ...S.h3, marginBottom:8, color:C.gold }}>Let's revisit something from last time...</h3>
+            {reviewMistakes.map((c,i)=>(
+              <div key={i} style={{ background:"rgba(0,0,0,0.2)", borderRadius:10, padding:"10px 14px", marginBottom:8 }}>
+                <div style={{ fontSize:13, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  <span style={{ color:C.coral, textDecoration:"line-through" }}>{c.original}</span>
+                  <span style={{ color:C.muted }}>→</span>
+                  <span style={{ color:C.sage, fontWeight:700 }}>{c.corrected}</span>
+                </div>
+                {c.explanation && <div style={{ fontSize:12, color:C.sky, marginTop:4 }}>{c.explanation}</div>}
+              </div>
+            ))}
+            <div style={{ fontSize:12, color:C.sky, marginTop:4 }}>Keep these in mind as you work through today's lesson 💪</div>
+          </div>
+        )}
+
         {/* Concept */}
         <div style={{ ...S.card, marginBottom:16 }}>
           <h3 style={S.h3}>📘 Today's Concept</h3>
@@ -1009,7 +1055,15 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
   useEffect(()=>{
     (async()=>{
       setLoading(true);
-      const r = await generateTest(user.profile, lessonNum, attemptNum, skill);
+      const pastMistakes = {
+        corrections: (user.tests?.flatMap(t => t.feedback?.corrections || []) || []).slice(-10),
+        weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
+          Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
+        ) || []).slice(-5),
+        improvements: (user.tests?.flatMap(t => t.feedback?.improvements || []) || []).slice(-5),
+        essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
+      };
+      const r = await generateTest(user.profile, lessonNum, attemptNum, skill, pastMistakes);
       setLoading(false);
       setTest(r.type==="test"?r:null);
       const saved = localStorage.getItem(`test_draft_${user.id}_${lessonNum}_${attemptNum}`);
@@ -1184,6 +1238,35 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
   const lastFailedTest = !hasPassedCurrentTest && currentLessonTests.length>0 ? currentLessonTests[currentLessonTests.length-1] : null;
   const weakAreasStr = lastFailedTest ? Object.entries(lastFailedTest.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k).join(", ") : "";
 
+  // Progress Insights computation
+  const SECTION_KEYS = ["knowledge","application","writing","speaking"];
+  const sectionAvg = (key) => {
+    const vals = tests.map(t=>t.scores?.[key]).filter(v=>v!=null);
+    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
+  };
+  const sectionAvgs = SECTION_KEYS.map(k=>({ key:k, avg:sectionAvg(k) })).filter(x=>x.avg!=null);
+  const lowestSection = sectionAvgs.length ? sectionAvgs.reduce((a,b)=>a.avg<b.avg?a:b) : null;
+  const mostImproved = (() => {
+    if (tests.length < 2) return null;
+    let best = null, bestDiff = 0;
+    for (const key of SECTION_KEYS) {
+      const first = tests[0]?.scores?.[key];
+      const last = tests[tests.length-1]?.scores?.[key];
+      if (first!=null && last!=null && (last-first) > bestDiff) { bestDiff = last-first; best = key; }
+    }
+    return best;
+  })();
+  const allCorrections = tests.flatMap(t=>t.feedback?.corrections||[]);
+  const commonMistake = (() => {
+    if (!allCorrections.length) return null;
+    const freq = {};
+    allCorrections.forEach(c=>{ const k = c.corrected||c.original; freq[k]=(freq[k]||0)+1; });
+    const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
+    const ex = allCorrections.find(c=>(c.corrected||c.original)===top[0]);
+    return ex ? `"${ex.original}" → "${ex.corrected}"` : null;
+  })();
+  const showInsights = tests.length >= 2 && (mostImproved || lowestSection || commonMistake);
+
   return (
     <div style={{ paddingBottom:80 }}>
       {profileLoading && (
@@ -1272,6 +1355,49 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
             <h2 style={{ ...S.h2, marginBottom:4 }}>Career Writing Practice</h2>
             <p style={{ color:C.sky, fontSize:14, marginBottom:16 }}>Write reports, proposals and professional documents for your career goals.</p>
             <button style={S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`)} onClick={onEssay}>✍️ Start Writing →</button>
+          </div>
+        )}
+
+        {/* Progress Insights */}
+        {showInsights && (
+          <div style={{ ...S.card, marginBottom:20 }}>
+            <h3 style={S.h3}>📊 Your Progress Insights</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginTop:4 }}>
+              {mostImproved && (
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:20 }}>📈</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.sage }}>Most improved</div>
+                    <div style={{ fontSize:13, color:C.sky, textTransform:"capitalize" }}>{mostImproved}</div>
+                  </div>
+                </div>
+              )}
+              {lowestSection && (
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:20 }}>🎯</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.warn }}>Still working on</div>
+                    <div style={{ fontSize:13, color:C.sky, textTransform:"capitalize" }}>{lowestSection.key} ({lowestSection.avg}% average)</div>
+                  </div>
+                </div>
+              )}
+              {commonMistake && (
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:20 }}>✏️</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.coral }}>Common mistake</div>
+                    <div style={{ fontSize:13, color:C.sky }}>{commonMistake}</div>
+                  </div>
+                </div>
+              )}
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:20 }}>🔥</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.gold }}>Streak</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{user.streak||0} day{user.streak!==1?"s":""} in a row</div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

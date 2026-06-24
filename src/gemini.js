@@ -67,15 +67,33 @@ export async function callGemini(prompt, onRetry) {
 }
 
 // ── Lesson generation ─────────────────────────────────────────────────────────
-export async function generateLesson(profile, lessonNum, day, skill) {
+export async function generateLesson(profile, lessonNum, day, skill, pastMistakes) {
   const ctx = profile.type === "student"
     ? `Student: ${profile.name}, Age ${profile.age}, Grade ${profile.grade}, Level: ${profile.level}. Goal: ${profile.goal}. Interests: ${profile.interests || "general"}.`
     : `Adult: ${profile.name}, Age ${profile.age}, Career: ${profile.career}, Level: ${profile.level}. Goal: ${profile.goal}.`;
+
+  const hasHistory = pastMistakes && (
+    pastMistakes.corrections?.length || pastMistakes.weakSections?.length || pastMistakes.improvements?.length
+  );
+  const mistakeCtx = hasHistory ? `
+IMPORTANT - This student has made these mistakes in past lessons that need reinforcement:
+Past corrections: ${pastMistakes.corrections?.map(c=>`"${c.original}" → "${c.corrected}"`).join(", ") || "none"}
+Weak areas: ${pastMistakes.weakSections?.join(", ") || "none"}
+Previous feedback to address: ${pastMistakes.improvements?.join("; ") || "none"}
+${pastMistakes.essayCorrections?.length ? `Essay corrections: ${pastMistakes.essayCorrections.map(c=>`"${c.original}" → "${c.corrected}"`).join(", ")}` : ""}
+
+Please:
+1. Start the lesson with a brief 'Quick Review' section that revisits 1-2 of their most recent mistakes with a corrected example
+2. Incorporate vocabulary or grammar patterns they struggled with into new examples and exercises
+3. If they scored low on speaking, add extra pronunciation focus
+4. If they scored low on writing, add an extra writing exercise
+5. Make exercises slightly easier in areas they struggled, building confidence before increasing difficulty` : "";
 
   return callGemini(`Generate a ${day === 1 ? "LEARN" : "PRACTICE"} lesson.
 ${ctx}
 Lesson ${lessonNum}, Skill Focus: ${skill}, Day ${day} of 2.
 ${day === 2 ? "Practice day — reinforce Day 1 concepts with slightly harder exercises." : ""}
+${mistakeCtx}
 
 Respond with this exact JSON:
 {
@@ -138,15 +156,22 @@ Respond with this exact JSON:
 }
 
 // ── Test generation ───────────────────────────────────────────────────────────
-export async function generateTest(profile, lessonNum, attemptNum, skill) {
+export async function generateTest(profile, lessonNum, attemptNum, skill, pastMistakes) {
   const ctx = profile.type === "student"
     ? `Student: ${profile.name}, Grade ${profile.grade}, Level: ${profile.level}`
     : `Adult: ${profile.name}, Career: ${profile.career}, Level: ${profile.level}`;
+
+  const weakSections = pastMistakes?.weakSections || [];
+  const speakingWeak = weakSections.includes("speaking");
+  const weakCtx = weakSections.length ? `
+Past weak areas: ${weakSections.join(", ")}. Weight these sections slightly heavier in question count to help the student practice more.
+${speakingWeak ? "Speaking has been consistently weak — make the speaking passage shorter and simpler to build confidence." : ""}` : "";
 
   return callGemini(`Generate a formal TEST.
 ${ctx}
 Lesson ${lessonNum}, Skill: ${skill}, Attempt ${attemptNum}.
 ${attemptNum > 1 ? "Use COMPLETELY DIFFERENT questions from previous attempts." : ""}
+${weakCtx}
 
 Respond with this exact JSON:
 {
@@ -230,16 +255,28 @@ Respond with this exact JSON:
 }
 
 // ── Essay topic generation ────────────────────────────────────────────────────
-export async function generateEssayTopic(profile) {
+export async function generateEssayTopic(profile, pastMistakes) {
   const ctx = profile.type === "student"
     ? `Student: Grade ${profile.grade}, Age ${profile.age}, Interests: ${profile.interests || "general topics"}, Level: ${profile.level}`
     : `Adult: Career: ${profile.career}, Goal: ${profile.goal}, Level: ${profile.level}`;
+
+  const allCorrections = [
+    ...(pastMistakes?.corrections || []),
+    ...(pastMistakes?.essayCorrections || [])
+  ];
+  const focusArea = pastMistakes?.weakSections?.length
+    ? pastMistakes.weakSections[0]
+    : allCorrections.length ? "grammar and word choice" : null;
+  const focusCtx = focusArea
+    ? `\nFocus point for this essay: Ask the student to specifically focus on ${focusArea} — ${allCorrections.length ? `they have made errors like: ${allCorrections.slice(0,3).map(c=>`"${c.original}" → "${c.corrected}"`).join(", ")}` : "this has been a weak area"}. Add a "Focus Point" field to your response with a specific, encouraging instruction.`
+    : "";
 
   return callGemini(`Generate an essay topic and resources for:
 ${ctx}
 
 For students: Pick from current affairs, grade-appropriate topics, or their interests.
 For adults: Pick a topic directly relevant to their career/goal (e.g. professional report, case study, reflection).
+${focusCtx}
 
 Respond with this exact JSON:
 {
@@ -261,6 +298,7 @@ Respond with this exact JSON:
     {"title": "string", "searchQuery": "string", "description": "string", "type": "article|video|wikipedia"}
   ],
   "reminderDays": 2,
+  "focusPoint": "string or null (specific grammar/writing focus based on student history, null if no history)",
   "encouragement": "string"
 }`);
 }
