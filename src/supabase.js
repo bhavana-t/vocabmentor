@@ -139,38 +139,23 @@ export async function clearStaleSession() {
   } catch (e) {}
 }
 
+// Fast single-table fetch — no joins, no retries
+export async function getBasicUser(uid) {
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, email, profile, current_lesson, current_day, streak, badges, last_active')
+    .eq('id', uid)
+    .maybeSingle();
+  return data ? { ...data, tests: [], lessons: [], essays: [] } : null;
+}
+
+// Emits auth state only — App.js handles all data fetching
 export async function onAuthChange(callback) {
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    async (event, session) => {
-      if (event === "SIGNED_UP") {
-        callback(null);
-        return;
-      }
+    (event, session) => {
+      if (event === "SIGNED_UP") { callback(null); return; }
       if (session?.user) {
-        const uid = session.user.id;
-        // Unblock UI immediately with basic data
-        callback({
-          id: uid,
-          email: session.user.email,
-          username: session.user.email?.split('@')[0] || 'User',
-          profile: null,
-          current_lesson: 1, current_day: 1,
-          streak: 0, badges: [],
-          tests: [], lessons: [], essays: [],
-          _dataLoading: true
-        });
-        // Fetch full data in background and emit update
-        try {
-          const row = await waitForUserRow(uid);
-          if (row) {
-            const tests = await getUserTests(uid);
-            const lessons = await getUserLessons(uid);
-            const essays = await getUserEssays(uid);
-            callback({ ...row, tests, lessons, essays });
-          }
-        } catch (e) {
-          console.error("Auth change background fetch error:", e);
-        }
+        callback({ id: session.user.id, email: session.user.email, _authOnly: true });
       } else {
         callback(null);
       }

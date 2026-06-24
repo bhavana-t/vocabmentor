@@ -5,7 +5,8 @@ import {
   supabase,
   registerUser, loginUser, logoutUser, onAuthChange,
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
-  advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession
+  advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession,
+  getBasicUser
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
@@ -139,8 +140,34 @@ function LandingPage({ onLogin, onGuest, onAdmin, loading }) {
   const doLogin = async () => {
     if (!form.email||!form.password) return setErr("Enter email and password.");
     setBusy(true); setErr("");
-    try { const u = await loginUser(form.email, form.password); onLogin(u); }
-    catch(e) { setErr("Invalid email or password."); }
+    try {
+      let u;
+      try {
+        u = await Promise.race([
+          loginUser(form.email, form.password),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("TIMEOUT")), 5000))
+        ]);
+      } catch (e) {
+        if (e.message === "TIMEOUT") {
+          // Auth may have completed — check session and use getBasicUser as fallback
+          const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+          if (session?.user) {
+            const basic = await getBasicUser(session.user.id).catch(() => null);
+            u = { ...(basic || {
+              id: session.user.id, email: session.user.email,
+              username: session.user.email?.split('@')[0] || 'User',
+              profile: null, current_lesson: 1, current_day: 1,
+              streak: 0, badges: []
+            }), tests: [], lessons: [], essays: [], _dataLoading: true };
+          } else {
+            throw new Error("Connection slow — please try again");
+          }
+        } else { throw e; }
+      }
+      onLogin(u);
+    } catch(e) {
+      setErr(e.message?.includes("slow") ? e.message : "Invalid email or password.");
+    }
     setBusy(false);
   };
   const doAdmin = () => { if(form.password===ADMIN_PASSWORD) onAdmin(); else setErr("Wrong admin password."); };
@@ -677,15 +704,15 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   useEffect(()=>{
     (async()=>{
       setLoading(true); setLesson(null); setAnswers({}); setSubmitted(false); setFeedback(null);
-      const pastMistakes = {
-        corrections: (user.tests?.flatMap(t => t.feedback?.corrections || []) || []).slice(-10),
-        weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
+      const pastMistakes = (user.tests?.length > 0) ? {
+        corrections: user.tests.flatMap(t => t.feedback?.corrections || []).slice(-10),
+        weakSections: user.tests.filter(t => !t.passed).flatMap(t =>
           Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
-        ) || []).slice(-5),
-        improvements: (user.tests?.flatMap(t => t.feedback?.improvements || []) || []).slice(-5),
+        ).slice(-5),
+        improvements: user.tests.flatMap(t => t.feedback?.improvements || []).slice(-5),
         essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
-      };
-      setReviewMistakes(pastMistakes.corrections.slice(-2));
+      } : null;
+      setReviewMistakes(pastMistakes?.corrections?.slice(-2) || []);
       const result = await generateLesson(user.profile, lessonNum, day, skill, pastMistakes);
       setLoading(false);
       setLesson(result.type==="lesson"?result:null);
@@ -1269,11 +1296,6 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
 
   return (
     <div style={{ paddingBottom:80 }}>
-      {profileLoading && (
-        <div style={{ background:"rgba(0,180,216,0.12)", borderBottom:"1px solid rgba(0,180,216,0.2)", padding:"8px 20px", fontSize:13, color:C.sky, textAlign:"center" }}>
-          ⏳ Loading your profile...
-        </div>
-      )}
       <div style={{ background:`linear-gradient(135deg,${C.royal},${C.navy})`, padding:"24px", marginBottom:20 }}>
         <div style={{ maxWidth:720, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12 }}>
           <div>
@@ -1855,73 +1877,99 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle|syncing|synced|error
   const didLoginRef = useRef(false);
   const hasRestoredRef = useRef(false);
 
+  // Phase 1: instant session check (max 3s), Phase 2: subscribe for sign-out events
   useEffect(()=>{
     let sub;
-    const bail = () => { setAuthLoading(false); setScreen("landing"); };
-    const authTimeout = setTimeout(bail, 5000);
+    let cancelled = false;
 
     (async () => {
+      try { await clearStaleSession(); } catch(e) {}
+
+      // Phase 1: show something within 3 seconds no matter what
       try {
-        await clearStaleSession();
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error || !session) { clearTimeout(authTimeout); bail(); return; }
-        const now = Math.floor(Date.now() / 1000);
-        if (session.expires_at && session.expires_at < now) {
-          const { error: refreshErr } = await supabase.auth.refreshSession();
-          if (refreshErr) {
-            await supabase.auth.signOut();
-            localStorage.removeItem('vocabmentor-auth');
-            clearTimeout(authTimeout); bail(); return;
+        const raced = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise(r => setTimeout(() => r({ timeout: true }), 3000))
+        ]);
+        if (cancelled) return;
+        if (!raced.timeout && raced.data?.session) {
+          const { session } = raced.data;
+          const uid = session.user.id;
+          const basic = await getBasicUser(uid).catch(() => null);
+          if (!cancelled) {
+            const u = basic || {
+              id: uid, email: session.user.email,
+              username: session.user.email?.split('@')[0] || 'User',
+              profile: null, current_lesson: 1, current_day: 1,
+              streak: 0, badges: [], tests: [], lessons: [], essays: []
+            };
+            setUser({ ...u, _dataLoading: true });
+            setScreen(u.profile ? "dashboard" : "setup");
+            hasRestoredRef.current = true;
           }
+        } else {
+          if (!cancelled) setScreen("landing");
         }
-      } catch (e) {
-        console.error("Session recovery error:", e);
-        localStorage.removeItem('vocabmentor-auth');
-        clearTimeout(authTimeout); bail(); return;
+      } catch(e) {
+        if (!cancelled) setScreen("landing");
       }
+      if (!cancelled) setAuthLoading(false);
+
+      // Phase 2: subscribe for future sign-out / sign-in events
+      onAuthChange(authData => {
+        if (cancelled) return;
+        if (!authData) {
+          setUser(null); setScreen("landing"); setSyncStatus("idle");
+        } else if (didLoginRef.current) {
+          didLoginRef.current = false;
+          hasRestoredRef.current = true;
+        }
+        // Ignore INITIAL_SESSION/TOKEN_REFRESHED — already handled above
+      }).then(s => { sub = s; });
     })();
 
-    onAuthChange(async u => {
-      clearTimeout(authTimeout);
-      setAuthLoading(false);
-      if (u) {
-        setUser(u);
-        if (didLoginRef.current || !hasRestoredRef.current) {
-          setScreen(u._dataLoading ? "dashboard" : (u.profile ? "dashboard" : "setup"));
-        }
-        didLoginRef.current = false;
-        hasRestoredRef.current = true;
-      } else {
-        setUser(null);
-        setScreen("landing");
-      }
-    }).then(s=>{ sub=s; });
-    return ()=>{ clearTimeout(authTimeout); sub?.unsubscribe(); };
+    return () => { cancelled = true; sub?.unsubscribe(); };
   },[]);
 
   const handleLogin = (u) => {
     didLoginRef.current = true;
     setUser(u);
-    setScreen(u._dataLoading ? "dashboard" : (u.profile ? "dashboard" : "setup"));
+    setScreen(u.profile ? "dashboard" : "setup");
   };
 
+  // Phase 2: background full data load with sync status
   useEffect(()=>{
     if (!user?.id || !user?._dataLoading) return;
     let cancelled = false, attempts = 0;
     let timer;
+    setSyncStatus("syncing");
     const fetchFull = async () => {
       attempts++;
       try {
         const full = await getUserData(user.id);
-        if (!cancelled) { setUser(full); if (!full.profile) setScreen("setup"); }
+        if (!cancelled) {
+          setUser(full);
+          setSyncStatus("synced");
+          setTimeout(() => { if (!cancelled) setSyncStatus("idle"); }, 2000);
+          if (!full.profile) setScreen("setup");
+        }
       } catch (e) {
-        if (!cancelled && attempts < 5) timer = setTimeout(fetchFull, 3000);
+        if (!cancelled) {
+          if (attempts < 5) {
+            timer = setTimeout(fetchFull, 3000);
+          } else {
+            // Give up — clear the loading flag so nothing is stuck forever
+            setUser(prev => prev ? { ...prev, _dataLoading: false } : prev);
+            setSyncStatus("error");
+          }
+        }
       }
     };
-    timer = setTimeout(fetchFull, 1000);
+    timer = setTimeout(fetchFull, 500);
     return () => { cancelled = true; clearTimeout(timer); };
   },[user?.id, user?._dataLoading]);
 
@@ -2006,6 +2054,9 @@ export default function App() {
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ fontWeight:800, fontSize:17, background:`linear-gradient(90deg,${C.sky},${C.gold})`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>📚 VocabMentor</div>
             {user?.username && <span style={{ fontSize:12, color:C.sky, background:"rgba(255,255,255,0.08)", padding:"3px 10px", borderRadius:20 }}>👤 {user.username}</span>}
+            {syncStatus==="syncing" && <span style={{ fontSize:11, color:C.sky, display:"flex", alignItems:"center", gap:4 }}><span style={{ display:"inline-block", animation:"spin 1s linear infinite" }}>⟳</span> Syncing...</span>}
+            {syncStatus==="synced" && <span style={{ fontSize:11, color:C.sage }}>✓ Synced</span>}
+            {syncStatus==="error" && <span style={{ fontSize:11, color:C.warn, display:"flex", alignItems:"center", gap:6 }}>⚠️ Sync failed <button onClick={()=>setUser(prev=>prev?{...prev,_dataLoading:true}:prev)} style={{ background:"none", border:`1px solid ${C.warn}`, color:C.warn, borderRadius:6, padding:"1px 8px", cursor:"pointer", fontSize:11 }}>Retry</button></span>}
           </div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             {[["dashboard","🏠"],["history","📋"],["essay","✍️"]].map(([s,icon])=>(
