@@ -1541,70 +1541,141 @@ function AdminView({ onBack }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedLoading, setSelectedLoading] = useState(false);
 
-  useEffect(()=>{ getAllUsers().then(u=>{ setUsers(u); setLoading(false); }); },[]);
+  const loadUsers = () => {
+    setLoading(true);
+    getAllUsers().then(u=>{ setUsers(u); setLoading(false); }).catch(()=>setLoading(false));
+  };
+  useEffect(()=>{ loadUsers(); },[]);
+
+  useEffect(()=>{
+    if (!selected) { setSelectedUser(null); return; }
+    setSelectedLoading(true);
+    getUserData(selected)
+      .then(u=>{ setSelectedUser(u); setSelectedLoading(false); })
+      .catch(()=>{ setSelectedUser(users.find(x=>x.id===selected)||null); setSelectedLoading(false); });
+  },[selected]);
 
   if (loading) return <div style={{ padding:40 }}><Spinner label="Loading all users..."/></div>;
 
   const flagged = users.filter(u=>(u.tests||[]).filter(t=>!t.passed).length>=2);
 
   if (selected) {
-    const u = users.find(x=>x.id===selected);
+    if (selectedLoading) return <div style={{ padding:40 }}><Spinner label="Loading user data..."/></div>;
+    const u = selectedUser || users.find(x=>x.id===selected);
+    if (!u) return <div style={{ padding:24 }}><Alert type="error">User not found.</Alert></div>;
     return (
       <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
         <button onClick={()=>setSelected(null)} style={{ ...S.btn("rgba(255,255,255,0.1)"), marginBottom:16 }}>← All Users</button>
+
+        {/* Profile card */}
         <div style={{ ...S.card, marginBottom:16 }}>
-          <h2 style={S.h2}>{u.profile?.name||u.username}</h2>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+          <h2 style={{ ...S.h2, marginBottom:8 }}>{u.profile?.name||u.username}</h2>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
             <Badge color={C.teal}>{u.profile?.level||"Unassessed"}</Badge>
             <Badge color={C.gold}>{u.profile?.type||"Unknown"}</Badge>
             {u.profile?.grade && <Badge color={C.coral}>Grade {u.profile.grade}</Badge>}
             {u.profile?.career && <Badge color={C.mint}>{u.profile.career}</Badge>}
           </div>
-          <div style={{ fontSize:13, color:C.sky }}>Lesson {u.current_lesson||1} · Day {u.current_day||1} · {(u.lessons||[]).length} lessons · {(u.tests||[]).length} tests · {(u.essays||[]).length} essays · Streak {u.streak||0} 🔥</div>
-          {u.email && <div style={{ fontSize:12, marginTop:4, color:C.muted }}>📧 {u.email}</div>}
+          <div style={{ display:"flex", gap:16, fontSize:12, color:C.sky, marginBottom:4, flexWrap:"wrap" }}>
+            <span>📚 Lesson {u.current_lesson||1} · Day {u.current_day||1}</span>
+            <span>🔥 Streak {u.streak||0}</span>
+            <span>📝 {(u.tests||[]).length} tests</span>
+            <span>📖 {(u.lessons||[]).length} lessons</span>
+            <span>✍️ {(u.essays||[]).length} essays</span>
+          </div>
+          {u.email && <div style={{ fontSize:12, color:C.muted }}>📧 {u.email}</div>}
+          {u.last_active && <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>🕐 Last active: {new Date(u.last_active).toLocaleDateString()}</div>}
+          {u.profile?.goal && <div style={{ fontSize:13, color:C.sky, marginTop:8, fontStyle:"italic" }}>Goal: {u.profile.goal}</div>}
         </div>
 
-        <h3 style={S.h3}>Tests ({(u.tests||[]).length})</h3>
-        {(u.tests||[]).length===0 ? <Alert type="info">No tests.</Alert> : (u.tests||[]).slice().reverse().map((t,i)=>(
+        {/* Tests */}
+        <h3 style={S.h3}>📝 Tests ({(u.tests||[]).length})</h3>
+        {(u.tests||[]).length===0 ? <Alert type="info">No tests yet.</Alert> : (u.tests||[]).slice().reverse().map((t,i)=>(
           <div key={i} style={{ ...S.card, marginBottom:10 }}>
-            <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <div><strong>Lesson {t.lesson_num}</strong> — {t.skill}</div>
-              <Badge color={t.passed?C.sage:C.error}>{t.scores?.total||0}%</Badge>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+              <div>
+                <div style={{ fontWeight:700 }}>Lesson {t.lesson_num} — {t.skill}</div>
+                <div style={{ fontSize:12, color:C.muted }}>{new Date(t.created_at).toLocaleString()} · Attempt {t.attempt_num||1}</div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                <Badge color={t.passed?C.sage:C.error}>{t.passed?"✓ PASS":"✗ FAIL"}</Badge>
+                <span style={{ fontWeight:800, fontSize:15, color:t.passed?C.sage:C.coral }}>{t.scores?.total||0}%</span>
+              </div>
             </div>
-            <div style={{ fontSize:12, color:C.muted }}>{new Date(t.created_at).toLocaleString()}</div>
-            {t.answers?.writing && <div style={{ marginTop:6, fontSize:12, fontStyle:"italic", color:C.sky }}>"{t.answers.writing.slice(0,100)}..."</div>}
+            {t.scores && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:8 }}>
+                {Object.entries(t.scores).filter(([k])=>k!=="total").map(([k,v])=>(
+                  <div key={k} style={{ background:"rgba(255,255,255,0.05)", borderRadius:6, padding:"6px 8px", textAlign:"center" }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:v>=75?C.sage:v>=60?C.warn:C.error }}>{v}%</div>
+                    <div style={{ fontSize:9, color:C.muted, textTransform:"capitalize" }}>{k}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {t.answers?.writing && <div style={{ fontSize:12, fontStyle:"italic", color:C.sky, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:8, marginBottom:6 }}>✍️ "{t.answers.writing.slice(0,200)}{t.answers.writing.length>200?"...":""}"</div>}
+            {t.feedback?.corrections?.length>0 && (
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:C.coral, marginBottom:4 }}>Corrections:</div>
+                {t.feedback.corrections.slice(0,3).map((c,j)=>(
+                  <div key={j} style={{ fontSize:11, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:"4px 8px", marginBottom:3 }}>
+                    <span style={{ color:C.error }}>✗ {c.original}</span> → <span style={{ color:C.sage }}>✓ {c.corrected}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
-        <h3 style={{ ...S.h3, marginTop:20 }}>Lessons ({(u.lessons||[]).length})</h3>
-        {(u.lessons||[]).length===0 ? <Alert type="info">No lessons.</Alert> : (u.lessons||[]).map((l,i)=>{
+        {/* Lessons */}
+        <h3 style={{ ...S.h3, marginTop:20 }}>📖 Lessons ({(u.lessons||[]).length})</h3>
+        {(u.lessons||[]).length===0 ? <Alert type="info">No lessons yet.</Alert> : (u.lessons||[]).map((l,i)=>{
           const skill = l.skill || SKILLS[((l.lesson_num||1)-1)%SKILLS.length];
           const totalScore = l.feedback?.scores?.total ?? l.feedback?.scores?.knowledge ?? null;
+          const isExtended = l.is_extended || l.day===0;
           return (
-            <div key={i} style={{ ...S.card, marginBottom:10 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                <div><strong>Lesson {l.lesson_num}</strong> — {skill}</div>
-                {totalScore !== null && <Badge color={totalScore>=75?C.sage:totalScore>=60?C.warn:C.error}>{totalScore}%</Badge>}
+            <div key={i} style={{ ...S.card, marginBottom:8 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                <div>
+                  <div style={{ fontWeight:700 }}>{isExtended?"📚 Extra Practice":`Lesson ${l.lesson_num}`} — {skill}</div>
+                  <div style={{ fontSize:12, color:C.muted }}>
+                    {isExtended?"Extra Practice":l.day===1?"📖 Day 1 — Learn":"✏️ Day 2 — Practice"} · {new Date(l.created_at).toLocaleString()}
+                  </div>
+                </div>
+                {totalScore!==null && <Badge color={totalScore>=75?C.sage:totalScore>=60?C.warn:C.error}>{totalScore}%</Badge>}
               </div>
-              <div style={{ fontSize:12, color:C.muted, marginBottom:4 }}>
-                {l.day===1?"📖 Day 1 — Learn":"✏️ Day 2 — Practice"} · {new Date(l.created_at).toLocaleString()}
-              </div>
-              {l.answers?.writing && <div style={{ fontSize:12, fontStyle:"italic", color:C.sky }}>"{l.answers.writing.slice(0,100)}..."</div>}
+              {l.answers?.writing && <div style={{ fontSize:12, fontStyle:"italic", color:C.sky, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:8, marginTop:6 }}>✍️ "{l.answers.writing.slice(0,150)}{l.answers.writing.length>150?"...":""}"</div>}
               {l.feedback?.feedback?.strengths?.length>0 && <div style={{ fontSize:11, color:C.sage, marginTop:4 }}>✓ {l.feedback.feedback.strengths[0]}</div>}
             </div>
           );
         })}
 
-        <h3 style={{ ...S.h3, marginTop:20 }}>Essays ({(u.essays||[]).length})</h3>
-        {(u.essays||[]).length===0 ? <Alert type="info">No essays.</Alert> : (u.essays||[]).map((e,i)=>(
+        {/* Essays */}
+        <h3 style={{ ...S.h3, marginTop:20 }}>✍️ Essays ({(u.essays||[]).length})</h3>
+        {(u.essays||[]).length===0 ? <Alert type="info">No essays yet.</Alert> : (u.essays||[]).map((e,i)=>(
           <div key={i} style={{ ...S.card, marginBottom:10 }}>
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-              <div style={{ fontWeight:700, fontSize:14 }}>{e.topic_data?.title}</div>
-              <Badge color={e.status==="completed"?C.sage:C.warn}>{e.status}</Badge>
+              <div style={{ fontWeight:700, fontSize:14, flex:1 }}>{e.topic_data?.title||"Essay"}</div>
+              <Badge color={e.status==="completed"?C.sage:C.warn}>{e.status==="completed"?"✓ Done":"⏳ Rewrite"}</Badge>
             </div>
-            {e.first_evaluation && <div style={{ fontSize:13 }}>First: {e.first_evaluation.scores?.overall}% (Grade {e.first_evaluation.grade})</div>}
-            {e.rewrite_evaluation && <div style={{ fontSize:13, color:C.sage }}>Rewrite: {e.rewrite_evaluation.scores?.overall}% (Grade {e.rewrite_evaluation.grade})</div>}
+            <div style={{ fontSize:12, color:C.muted, marginBottom:8 }}>{new Date(e.created_at).toLocaleString()}</div>
+            <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+              {e.first_evaluation && (
+                <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:8, padding:"8px 12px" }}>
+                  <div style={{ fontSize:11, color:C.muted, marginBottom:2 }}>First Draft</div>
+                  <div style={{ fontWeight:700, color:C.warn }}>{e.first_evaluation.scores?.overall}% · Grade {e.first_evaluation.grade}</div>
+                </div>
+              )}
+              {e.rewrite_evaluation && (
+                <div style={{ background:"rgba(82,183,136,0.1)", borderRadius:8, padding:"8px 12px" }}>
+                  <div style={{ fontSize:11, color:C.muted, marginBottom:2 }}>After Research</div>
+                  <div style={{ fontWeight:700, color:C.sage }}>{e.rewrite_evaluation.scores?.overall}% · Grade {e.rewrite_evaluation.grade}</div>
+                </div>
+              )}
+            </div>
+            {e.first_essay && <div style={{ marginTop:8, fontSize:12, fontStyle:"italic", color:C.sky, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:8 }}>"{e.first_essay.slice(0,150)}{e.first_essay.length>150?"...":""}"</div>}
           </div>
         ))}
       </div>
@@ -1615,7 +1686,10 @@ function AdminView({ onBack }) {
     <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <h2 style={{ ...S.h2, marginBottom:0 }}>🔐 Admin Dashboard</h2>
-        <button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>Exit</button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={loadUsers} style={{ ...S.btn(`rgba(0,180,216,0.15)`), border:`1px solid ${C.teal}44` }}>🔄 Refresh</button>
+          <button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>Exit</button>
+        </div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
         {[["👥",users.length,"Users"],["✅",users.filter(u=>(u.tests||[]).some(t=>t.passed)).length,"Active"],["⚠️",flagged.length,"Need Help"]].map(([icon,val,label])=>(
@@ -1636,6 +1710,7 @@ function AdminView({ onBack }) {
               <div>
                 <div style={{ fontWeight:700 }}>{u.profile?.name||u.username} {stuck&&"⚠️"}</div>
                 <div style={{ fontSize:12, color:C.muted }}>{u.email} · {u.profile?.type||"No profile"} · L{u.current_lesson||1}</div>
+                {u.last_active && <div style={{ fontSize:11, color:C.muted }}>Last active: {new Date(u.last_active).toLocaleDateString()}</div>}
               </div>
               <div style={{ textAlign:"right" }}>
                 {avg!==null && <div style={{ fontWeight:700, color:avg>=75?C.sage:C.warn }}>{avg}%</div>}
