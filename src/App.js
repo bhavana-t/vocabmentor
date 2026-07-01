@@ -6,11 +6,13 @@ import {
   registerUser, loginUser, logoutUser, onAuthChange,
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
   advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession,
-  getBasicUser
+  getBasicUser, analyzeStudentStruggles, saveMicroPlan,
+  updateMicroPlanProgress, clearMicroPlan
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
-  assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson
+  assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson,
+  analyzeAndCreateMicroPlan
 } from "./gemini";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1258,7 +1260,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice, profileLoading }) {
+function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice, onMicroPlan, profileLoading }) {
   const p = user.profile;
   const tests = user.tests||[];
   const essays = user.essays||[];
@@ -1272,6 +1274,7 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
   const hasPassedCurrentTest = currentLessonTests.some(t=>t.passed);
   const lastFailedTest = !hasPassedCurrentTest && currentLessonTests.length>0 ? currentLessonTests[currentLessonTests.length-1] : null;
   const weakAreasStr = lastFailedTest ? Object.entries(lastFailedTest.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k).join(", ") : "";
+  const microPlan = user.micro_plan;
 
   // Progress Insights computation
   const SECTION_KEYS = ["knowledge","application","writing","speaking"];
@@ -1344,8 +1347,46 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
           ))}
         </div>
 
+        {/* Micro plan card — shown when an active plan exists */}
+        {microPlan?.plan && (
+          <div style={{ background:`linear-gradient(135deg,rgba(123,45,139,0.25),${C.navy})`, border:`2px solid ${C.purple}88`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.purple, fontWeight:700, marginBottom:4, letterSpacing:"0.05em" }}>🎯 PERSONALIZED PLAN ACTIVE</div>
+            <h3 style={{ ...S.h3, color:C.gold, marginBottom:6 }}>Your Personalized Plan is Ready!</h3>
+            <p style={{ fontSize:13, color:C.sky, marginBottom:12 }}>We've identified exactly what to work on. Let's fix one thing at a time!</p>
+            {/* Progress track */}
+            <div style={{ display:"flex", alignItems:"center", gap:0, marginBottom:14 }}>
+              {(microPlan.plan.microLessons||[]).map((ml,i)=>{
+                const done=(microPlan.completedMicroLessons||[]).includes(i);
+                const current=i===(microPlan.currentMicroLesson||0);
+                return (
+                  <div key={i} style={{ display:"flex", alignItems:"center", flex:1 }}>
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                      <div style={{ width:32, height:32, borderRadius:"50%", fontSize:13, display:"flex", alignItems:"center", justifyContent:"center",
+                        background:done?C.sage:current?C.purple:"rgba(255,255,255,0.1)", border:current?`2px solid ${C.gold}`:"none" }}>
+                        {done?"✓":FOCUS_ICONS[ml.focusArea]||"📖"}
+                      </div>
+                      <div style={{ fontSize:9, color:done?C.sage:current?C.gold:C.muted, textAlign:"center", maxWidth:48 }}>{ml.focusArea}</div>
+                    </div>
+                    {i<(microPlan.plan.microLessons.length-1)&&<div style={{ flex:1, height:2, background:done?C.sage:"rgba(255,255,255,0.1)", margin:"0 4px", marginBottom:14 }}/>}
+                  </div>
+                );
+              })}
+              <div style={{ display:"flex", alignItems:"center" }}>
+                <div style={{ width:6, height:2, background:"rgba(255,255,255,0.1)", margin:"0 4px", marginBottom:14 }}/>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                  <div style={{ width:32, height:32, borderRadius:"50%", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(255,255,255,0.08)" }}>🏆</div>
+                  <div style={{ fontSize:9, color:C.muted }}>Final</div>
+                </div>
+              </div>
+            </div>
+            <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`), width:"100%", justifyContent:"center", padding:12 }} onClick={onMicroPlan}>
+              Continue My Plan → Step {(microPlan.currentMicroLesson||0)+1}
+            </button>
+          </div>
+        )}
+
         {/* Failed test card */}
-        {lastFailedTest && (
+        {lastFailedTest && !microPlan?.plan && (
           <div style={{ background:`linear-gradient(135deg,${C.error}22,${C.navy})`, border:`1px solid ${C.error}44`, borderRadius:16, padding:20, marginBottom:16 }}>
             <div style={{ fontSize:12, color:C.coral, marginBottom:4 }}>⚠️ NEEDS MORE WORK</div>
             <h3 style={{ ...S.h3, marginBottom:4 }}>Lesson {lessonNum} — {skill}</h3>
@@ -1880,6 +1921,287 @@ function AdminView({ onBack }) {
   );
 }
 
+// ── Micro Learning Path ───────────────────────────────────────────────────────
+const FOCUS_ICONS = { Spelling:"✏️", Punctuation:"📌", Grammar:"📖", Vocabulary:"📚", Writing:"✍️", Speaking:"🗣️" };
+
+function MicroExercise({ ex, idx, answers, setAnswers, submitted }) {
+  const ans = answers[idx] || "";
+  const isCorrect = submitted && ans.toLowerCase().trim() === (ex.answer||"").toLowerCase().trim();
+  const style = submitted
+    ? { borderColor: isCorrect ? C.sage : C.coral }
+    : {};
+  if (ex.type === "mcq") return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>{ex.question}</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {(ex.options||[]).map((opt,j)=>{
+          const selected = ans === opt;
+          const correct = submitted && opt === ex.answer;
+          const wrong = submitted && selected && opt !== ex.answer;
+          return (
+            <button key={j} onClick={()=>{ if (!submitted) setAnswers(a=>({...a,[idx]:opt})); }}
+              style={{ ...S.btn(correct?"rgba(82,183,136,0.2)":wrong?"rgba(230,57,70,0.2)":selected?"rgba(0,180,216,0.15)":"rgba(255,255,255,0.05)"), justifyContent:"flex-start", border:`1px solid ${correct?C.sage:wrong?C.error:selected?C.teal:"rgba(255,255,255,0.15)"}`, width:"100%", padding:"8px 14px" }}>
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+      {submitted && <div style={{ fontSize:12, color:isCorrect?C.sage:C.coral, marginTop:4 }}>{isCorrect?"✓ Correct!":"✗ Answer: "+ex.answer}</div>}
+    </div>
+  );
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:14, fontWeight:600, marginBottom:6 }}>{ex.question}</div>
+      <input style={{ ...S.input, ...style }} value={ans} disabled={submitted}
+        onChange={e=>setAnswers(a=>({...a,[idx]:e.target.value}))}
+        placeholder="Type your answer..."/>
+      {submitted && <div style={{ fontSize:12, color:isCorrect?C.sage:C.coral, marginTop:4 }}>{isCorrect?"✓ Correct!":"✗ Answer: "+ex.answer}</div>}
+    </div>
+  );
+}
+
+function MicroLearningPath({ user, planData, onComplete, onBack }) {
+  const { plan } = planData;
+  const microLessons = plan?.microLessons || [];
+  const [phase, setPhase] = useState("overview");
+  const [currentIdx, setCurrentIdx] = useState(planData.currentMicroLesson || 0);
+  const [exAnswers, setExAnswers] = useState({});
+  const [exSubmitted, setExSubmitted] = useState(false);
+  const [miniAnswers, setMiniAnswers] = useState({});
+  const [miniSubmitted, setMiniSubmitted] = useState(false);
+  const [miniScore, setMiniScore] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const completedSet = new Set(planData.completedMicroLessons || []);
+
+  const allDone = currentIdx >= microLessons.length;
+  const ml = microLessons[currentIdx];
+
+  const scoreMini = () => {
+    const qs = ml?.miniTest?.questions || [];
+    if (!qs.length) return 100;
+    const correct = qs.filter((q, i) =>
+      (miniAnswers[i]||"").toLowerCase().trim() === (q.answer||"").toLowerCase().trim()
+    ).length;
+    return Math.round((correct / qs.length) * 100);
+  };
+
+  const submitMini = async () => {
+    const score = scoreMini();
+    setMiniScore(score);
+    setMiniSubmitted(true);
+    if (score >= 80) {
+      setSaving(true);
+      try { await updateMicroPlanProgress(user.id, currentIdx); } catch(e) {}
+      setSaving(false);
+      if (currentIdx + 1 >= microLessons.length) setPhase("alldone");
+      else setPhase("passed");
+    }
+  };
+
+  const goNext = () => {
+    setCurrentIdx(i => i + 1);
+    setExAnswers({}); setExSubmitted(false);
+    setMiniAnswers({}); setMiniSubmitted(false); setMiniScore(null);
+    setPhase("lesson");
+  };
+
+  const ProgressTrack = () => (
+    <div style={{ display:"flex", alignItems:"center", marginBottom:24, padding:"0 8px" }}>
+      {microLessons.map((m, i) => (
+        <div key={i} style={{ display:"flex", alignItems:"center", flex:1 }}>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+            <div style={{ width:38, height:38, borderRadius:"50%", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
+              background: completedSet.has(i) ? C.sage : i===currentIdx ? `linear-gradient(135deg,${C.purple},${C.teal})` : "rgba(255,255,255,0.1)",
+              border: i===currentIdx ? `2px solid ${C.gold}` : "2px solid transparent" }}>
+              {completedSet.has(i) ? "✓" : FOCUS_ICONS[m.focusArea] || "📖"}
+            </div>
+            <div style={{ fontSize:10, color:i===currentIdx?C.gold:completedSet.has(i)?C.sage:C.muted, textAlign:"center", maxWidth:55, lineHeight:1.2 }}>{m.focusArea}</div>
+          </div>
+          {i < microLessons.length - 1 && <div style={{ flex:1, height:2, background:completedSet.has(i)?C.sage:"rgba(255,255,255,0.1)", margin:"0 6px", marginBottom:18 }}/>}
+        </div>
+      ))}
+      <div style={{ display:"flex", alignItems:"center", flex:"0 0 auto" }}>
+        <div style={{ width:3, height:2, background:currentIdx>=microLessons.length?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.1)", margin:"0 6px", marginBottom:18 }}/>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+          <div style={{ width:38, height:38, borderRadius:"50%", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center",
+            background: allDone ? `linear-gradient(135deg,${C.gold},${C.coral})` : "rgba(255,255,255,0.1)" }}>🏆</div>
+          <div style={{ fontSize:10, color:allDone?C.gold:C.muted, textAlign:"center" }}>Final Test</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Overview ──
+  if (phase === "overview") return (
+    <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
+      <button onClick={onBack} style={{ ...S.btn("rgba(255,255,255,0.1)"), marginBottom:16 }}>← Dashboard</button>
+      <div style={{ background:`linear-gradient(135deg,${C.purple}44,${C.navy})`, border:`1px solid ${C.purple}66`, borderRadius:20, padding:24, marginBottom:20, textAlign:"center" }}>
+        <div style={{ fontSize:40, marginBottom:8 }}>🎯</div>
+        <h2 style={{ ...S.h2, color:C.gold }}>Personalized Learning Plan for You, {user.profile?.name||user.username}!</h2>
+        <p style={{ color:C.sky, fontSize:15, lineHeight:1.6 }}>{plan.struggleAnalysis?.encouragement}</p>
+      </div>
+      <div style={{ ...S.card, marginBottom:20 }}>
+        <h3 style={S.h3}>🔍 What We Found</h3>
+        <p style={{ fontSize:14, color:C.sky, marginBottom:12 }}>{plan.struggleAnalysis?.pattern}</p>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+          {[plan.struggleAnalysis?.primaryMistake, plan.struggleAnalysis?.secondaryMistake, plan.struggleAnalysis?.tertiaryMistake].filter(Boolean).map((m,i)=>(
+            <div key={i} style={{ background:"rgba(255,255,255,0.06)", borderRadius:10, padding:"8px 14px", display:"flex", alignItems:"center", gap:6 }}>
+              <span>{FOCUS_ICONS[m]||"🎯"}</span>
+              <div>
+                <div style={{ fontSize:11, color:C.muted }}>{["Primary","Secondary","Tertiary"][i]} area</div>
+                <div style={{ fontWeight:700, fontSize:13 }}>{m}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ ...S.card, marginBottom:20 }}>
+        <h3 style={S.h3}>📋 Your 3-Step Plan</h3>
+        <ProgressTrack/>
+        <p style={{ fontSize:13, color:C.sky }}>Complete each mini-lesson and pass a quick test (80%+) to unlock the next one. After all 3, take the full lesson test again!</p>
+      </div>
+      <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`), width:"100%", justifyContent:"center", padding:14, fontSize:15 }}
+        onClick={()=>setPhase("lesson")}>
+        🚀 Start Step {currentIdx+1}: {ml?.focusArea} →
+      </button>
+    </div>
+  );
+
+  // ── Lesson phase ──
+  if (phase === "lesson" && ml) return (
+    <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
+      <button onClick={()=>setPhase("overview")} style={{ ...S.btn("rgba(255,255,255,0.1)"), marginBottom:16 }}>← Overview</button>
+      <ProgressTrack/>
+
+      {/* Header */}
+      <div style={{ background:`linear-gradient(135deg,${C.purple}44,${C.navy})`, border:`1px solid ${C.purple}55`, borderRadius:16, padding:20, marginBottom:16 }}>
+        <Badge color={C.purple}>Step {ml.order} of {microLessons.length}</Badge>
+        <h2 style={{ ...S.h2, marginTop:8 }}>{FOCUS_ICONS[ml.focusArea]||"🎯"} {ml.focusArea} Focus</h2>
+        <p style={{ color:C.sky, fontSize:14, margin:0 }}>Target: <strong style={{ color:C.gold }}>{ml.specificProblem}</strong></p>
+      </div>
+
+      {/* Technique */}
+      <div style={{ ...S.card, marginBottom:16 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.gold, letterSpacing:"0.06em", marginBottom:6 }}>THE TECHNIQUE</div>
+        <h3 style={{ ...S.h3, color:C.gold, marginBottom:10 }}>✨ {ml.technique}</h3>
+        <p style={{ fontSize:14, lineHeight:1.7, color:C.sky }}>{ml.techniqueExplanation}</p>
+
+        {/* Memory trick */}
+        <div style={{ background:`linear-gradient(135deg,rgba(244,162,97,0.15),rgba(231,111,81,0.1))`, border:`1px solid ${C.gold}44`, borderRadius:12, padding:16, marginTop:14 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:C.gold, marginBottom:6 }}>🧠 MEMORY TRICK</div>
+          <p style={{ fontSize:14, color:C.cream, margin:0, lineHeight:1.6 }}>{ml.memoryTrick}</p>
+        </div>
+
+        {/* Practice words */}
+        {ml.practiceWords?.length > 0 && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:8 }}>PRACTICE WORDS</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {ml.practiceWords.map((w,i)=>(
+                <div key={i} style={{ background:"rgba(0,180,216,0.1)", border:`1px solid ${C.teal}44`, borderRadius:8, padding:"6px 14px", fontSize:14, fontWeight:600, color:C.teal }}>
+                  {w} <SpeakButton text={w}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Exercises */}
+      <div style={{ ...S.card, marginBottom:16 }}>
+        <h3 style={S.h3}>✏️ Practice Exercises</h3>
+        {(ml.exercises||[]).map((ex,i)=>(
+          <MicroExercise key={i} ex={ex} idx={i} answers={exAnswers} setAnswers={setExAnswers} submitted={exSubmitted}/>
+        ))}
+        {!exSubmitted
+          ? <button style={S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`)} onClick={()=>setExSubmitted(true)}>Check Answers</button>
+          : <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`), marginTop:8 }} onClick={()=>setPhase("minitest")}>Ready for Mini Test →</button>
+        }
+      </div>
+    </div>
+  );
+
+  // ── Mini test phase ──
+  if (phase === "minitest" && ml) return (
+    <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
+      <ProgressTrack/>
+      <div style={{ ...S.card, marginBottom:16, background:`linear-gradient(135deg,rgba(123,45,139,0.1),${C.navy})`, border:`1px solid ${C.purple}44` }}>
+        <Badge color={C.purple}>Mini Test — {ml.focusArea}</Badge>
+        <h3 style={{ ...S.h3, marginTop:8 }}>5 Questions — Score 80%+ to continue</h3>
+        <p style={{ fontSize:13, color:C.sky, margin:0 }}>These questions test only what you just practised. You've got this! 💪</p>
+      </div>
+      {(ml.miniTest?.questions||[]).map((q,i)=>(
+        <MicroExercise key={i} ex={q} idx={i} answers={miniAnswers} setAnswers={setMiniAnswers} submitted={miniSubmitted}/>
+      ))}
+      {miniSubmitted && (
+        <div style={{ ...S.card, marginBottom:16, textAlign:"center", background: miniScore>=80 ? "rgba(82,183,136,0.1)" : "rgba(230,57,70,0.08)", border:`1px solid ${miniScore>=80?C.sage:C.error}44` }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>{miniScore>=80?"🎉":"💪"}</div>
+          <div style={{ fontSize:28, fontWeight:800, color:miniScore>=80?C.sage:C.coral }}>{miniScore}%</div>
+          <div style={{ color:C.sky, marginBottom:miniScore<80?12:0 }}>
+            {miniScore>=80 ? `Great job! You've mastered ${ml.focusArea}!` : `Not quite — you need 80% to pass. Review the technique and try again.`}
+          </div>
+          {miniScore<80 && <button style={S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`)} onClick={()=>{ setMiniAnswers({}); setMiniSubmitted(false); setMiniScore(null); }}>Try Again</button>}
+          {saving && <div style={{ marginTop:8, color:C.sky, fontSize:13 }}>Saving progress...</div>}
+        </div>
+      )}
+      {!miniSubmitted
+        ? <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`), width:"100%", justifyContent:"center", padding:14 }} onClick={submitMini}>Submit Mini Test</button>
+        : miniScore>=80 && !saving && (currentIdx+1 < microLessons.length
+          ? <button style={{ ...S.btn(`linear-gradient(135deg,${C.sage},${C.teal})`), width:"100%", justifyContent:"center", padding:14 }} onClick={goNext}>Next: {microLessons[currentIdx+1]?.focusArea} →</button>
+          : null
+        )
+      }
+    </div>
+  );
+
+  // ── Passed one lesson ──
+  if (phase === "passed") return (
+    <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
+      <div style={{ ...S.card, textAlign:"center", background:"rgba(82,183,136,0.08)", border:`1px solid ${C.sage}44`, marginBottom:20 }}>
+        <div style={{ fontSize:48, marginBottom:8 }}>⭐</div>
+        <h2 style={S.h2}>Step {currentIdx} Complete!</h2>
+        <p style={{ color:C.sky }}>You've mastered <strong style={{ color:C.gold }}>{microLessons[currentIdx-1]?.focusArea}</strong>. Keep going — you're doing amazing!</p>
+      </div>
+      <ProgressTrack/>
+      <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`), width:"100%", justifyContent:"center", padding:14 }}
+        onClick={goNext}>Continue to Step {currentIdx+1}: {microLessons[currentIdx]?.focusArea} →</button>
+    </div>
+  );
+
+  // ── All done ──
+  if (phase === "alldone" || allDone) return (
+    <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
+      <div style={{ ...S.card, textAlign:"center", background:`linear-gradient(135deg,rgba(244,162,97,0.15),rgba(82,183,136,0.1))`, border:`1px solid ${C.gold}44`, marginBottom:20 }}>
+        <div style={{ fontSize:60, marginBottom:12 }}>🏆</div>
+        <h2 style={{ ...S.h2, color:C.gold }}>All 3 Steps Complete!</h2>
+        <p style={{ color:C.sky, lineHeight:1.7, marginBottom:0 }}>
+          You've worked through <strong style={{ color:C.gold }}>{microLessons.map(m=>m.focusArea).join(", ")}</strong> — the exact areas that were holding you back. Now you're ready to prove what you know!
+        </p>
+      </div>
+      <ProgressTrack/>
+      <div style={{ ...S.card, marginBottom:20 }}>
+        <h3 style={S.h3}>🎯 What's next?</h3>
+        <p style={{ fontSize:14, color:C.sky }}>The final test will now focus specifically on <strong>{plan.finalTest?.focusAreas?.join(", ") || "your practised areas"}</strong>. You've got the techniques — use them!</p>
+        {(plan.finalTest?.focusAreas||[]).map((fa,i)=>(
+          <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+            <span style={{ fontSize:20 }}>{FOCUS_ICONS[fa]||"🎯"}</span>
+            <div>
+              <div style={{ fontWeight:700 }}>{fa}</div>
+              <div style={{ fontSize:12, color:C.muted }}>{microLessons.find(m=>m.focusArea===fa)?.specificProblem}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button style={{ ...S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`), width:"100%", justifyContent:"center", padding:16, fontSize:15 }}
+        onClick={()=>{ clearMicroPlan(user.id).catch(()=>{}); onComplete(); }}>
+        🚀 Take the Final Test Now!
+      </button>
+    </div>
+  );
+
+  return null;
+}
+
 // ── Setup guard ───────────────────────────────────────────────────────────────
 // Only show profile setup for genuinely new accounts — never for existing users
 // whose data hasn't loaded yet.
@@ -2012,6 +2334,7 @@ export default function App() {
 
   const [retryLessonNum, setRetryLessonNum] = useState(null);
   const [extendedContext, setExtendedContext] = useState(null);
+  const [microPlanContext, setMicroPlanContext] = useState(null);
 
   const handleRetry = (ln) => { setRetryLessonNum(ln); setScreen("test"); };
 
@@ -2027,6 +2350,41 @@ export default function App() {
     const fresh = await getUserData(user.id);
     setUser(fresh);
     const failedLessonNum = testLessonNum;
+
+    // Check for 5+ failures → trigger micro learning path
+    const failedAttempts = (fresh.tests||[]).filter(t=>t.lesson_num===failedLessonNum && !t.passed);
+    if (failedAttempts.length >= 5) {
+      // Resume existing plan if available
+      if (fresh.micro_plan?.lessonNum===failedLessonNum && fresh.micro_plan?.plan) {
+        setMicroPlanContext(fresh.micro_plan);
+        setScreen("micro");
+        return;
+      }
+      // Generate a new plan
+      setScreen("micro_loading");
+      try {
+        const struggleData = await analyzeStudentStruggles(user.id, failedLessonNum);
+        const planResult = await analyzeAndCreateMicroPlan(fresh.profile, struggleData);
+        if (planResult?.type === "micro_plan") {
+          await saveMicroPlan(user.id, failedLessonNum, planResult);
+          const planData = { lessonNum: failedLessonNum, plan: planResult, currentMicroLesson: 0, completedMicroLessons: [] };
+          setMicroPlanContext(planData);
+          const updated = await getUserData(user.id);
+          setUser(updated);
+          setScreen("micro");
+        } else {
+          // Plan generation failed — fall through to normal retry
+          setRetryLessonNum(failedLessonNum);
+          setScreen("test");
+        }
+      } catch(e) {
+        console.error("Micro plan generation failed:", e);
+        setRetryLessonNum(failedLessonNum);
+        setScreen("test");
+      }
+      return;
+    }
+
     const weakAreas = Object.entries(result.scores||{}).filter(([k,v])=>k!=="total"&&v<60).map(([k])=>k);
     if (action === "extend") {
       setExtendedContext({
@@ -2093,8 +2451,16 @@ export default function App() {
 
       {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} loading={authLoading}/>}
       {screen==="setup" && user && needsSetup(user) && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
-      {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} profileLoading={user?._dataLoading===true}/>}
-      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} profileLoading={user?._dataLoading===true}/>}
+      {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
+      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
+      {screen==="micro_loading" && (
+        <div style={{ minHeight:"100vh", background:C.navy, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:20 }}>
+          <div style={{ fontSize:48, animation:"spin 1s linear infinite" }}>🔍</div>
+          <h2 style={{ ...S.h2, color:C.gold }}>Analyzing Your Learning...</h2>
+          <p style={{ color:C.muted, fontSize:14, textAlign:"center", maxWidth:320 }}>We're identifying exactly where to focus so you make the fastest progress.</p>
+        </div>
+      )}
+      {screen==="micro" && user && microPlanContext && <MicroLearningPath user={user} planData={microPlanContext} onComplete={()=>{setRetryLessonNum(microPlanContext.lessonNum);setMicroPlanContext(null);setScreen("test");}} onBack={()=>setScreen("dashboard")}/>}
       {screen==="lesson" && user && <LessonView user={user} lessonNum={lessonNum} day={day} onDayComplete={handleDayComplete}/>}
       {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
       {screen==="extended" && user && extendedContext && <ExtendedLessonView user={user} context={extendedContext} onComplete={handleExtendedComplete}/>}
