@@ -205,6 +205,126 @@ Respond with this exact JSON:
 }`);
 }
 
+// ── Micro plan analysis ───────────────────────────────────────────────────────
+export async function analyzeAndCreateMicroPlan(profile, struggleData) {
+  const ctx = profile.type === "student"
+    ? `Student: ${profile.name}, Age ${profile.age}, Grade ${profile.grade}, Level: ${profile.level}`
+    : `Adult: ${profile.name}, Age ${profile.age}, Career: ${profile.career}, Level: ${profile.level}`;
+
+  const allCorrections = struggleData.tests.flatMap(t => t.feedback?.corrections || []);
+  const scoresPerAttempt = struggleData.tests.map((t, i) => ({
+    attempt: i + 1, scores: t.scores, passed: t.passed
+  }));
+  const writingSamples = struggleData.tests
+    .map((t, i) => `Attempt ${i + 1}: ${t.answers?.writing || "(no writing)"}`)
+    .join("\n");
+
+  return callGemini(`Analyze this student's struggle pattern across ${struggleData.tests.length} failed attempts.
+
+Student profile: ${ctx}
+All corrections across attempts: ${JSON.stringify(allCorrections.slice(-30))}
+Section scores across attempts: ${JSON.stringify(scoresPerAttempt)}
+Writing samples: ${writingSamples}
+
+Identify their TOP 3 mistake patterns and create a micro-learning breakdown plan with targeted exercises.
+
+Respond with this exact JSON:
+{
+  "type": "micro_plan",
+  "struggleAnalysis": {
+    "primaryMistake": "string (e.g. Spelling)",
+    "secondaryMistake": "string (e.g. Punctuation)",
+    "tertiaryMistake": "string (e.g. Grammar)",
+    "pattern": "string (describe the specific recurring pattern you observe)",
+    "encouragement": "string (warm, specific message for this student)"
+  },
+  "microLessons": [
+    {
+      "order": 1,
+      "focusArea": "string (e.g. Spelling)",
+      "specificProblem": "string (e.g. confusing there/their/they're)",
+      "technique": "string (technique name e.g. Word Family Mapping)",
+      "techniqueExplanation": "string (step-by-step how to use this technique)",
+      "practiceWords": ["word1", "word2", "word3", "word4", "word5"],
+      "memoryTrick": "string (fun memorable trick specific to their mistake)",
+      "exercises": [
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+        {"type": "correct", "question": "Fix this: string", "answer": "string"},
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"}
+      ],
+      "miniTest": {
+        "questions": [
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "correct", "question": "Fix this: string", "answer": "string"}
+        ],
+        "passingScore": 80
+      }
+    },
+    {
+      "order": 2,
+      "focusArea": "string",
+      "specificProblem": "string",
+      "technique": "string",
+      "techniqueExplanation": "string",
+      "practiceWords": ["word1","word2","word3","word4","word5"],
+      "memoryTrick": "string",
+      "exercises": [
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+        {"type": "correct", "question": "Fix this: string", "answer": "string"},
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"}
+      ],
+      "miniTest": {
+        "questions": [
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "correct", "question": "Fix this: string", "answer": "string"}
+        ],
+        "passingScore": 80
+      }
+    },
+    {
+      "order": 3,
+      "focusArea": "string",
+      "specificProblem": "string",
+      "technique": "string",
+      "techniqueExplanation": "string",
+      "practiceWords": ["word1","word2","word3","word4","word5"],
+      "memoryTrick": "string",
+      "exercises": [
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+        {"type": "correct", "question": "Fix this: string", "answer": "string"},
+        {"type": "fill", "question": "string", "answer": "string"},
+        {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"}
+      ],
+      "miniTest": {
+        "questions": [
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "mcq", "question": "string", "options": ["a","b","c","d"], "answer": "string"},
+          {"type": "fill", "question": "string", "answer": "string"},
+          {"type": "correct", "question": "Fix this: string", "answer": "string"}
+        ],
+        "passingScore": 80
+      }
+    }
+  ],
+  "finalTest": {
+    "description": "Combined test after all micro lessons completed",
+    "focusAreas": ["string", "string", "string"]
+  }
+}`, (msg) => console.log("Micro plan:", msg));
+}
+
 // ── Evaluation ────────────────────────────────────────────────────────────────
 export async function evaluateSubmission(profile, skill, answers, isTest = false) {
   return callGemini(`Evaluate this ${isTest ? "TEST" : "exercise"} submission.

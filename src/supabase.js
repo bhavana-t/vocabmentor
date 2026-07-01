@@ -240,6 +240,41 @@ export async function getUserEssays(uid) {
   return data || [];
 }
 
+// ── Micro learning plan ───────────────────────────────────────────────────────
+// SQL needed: alter table users add column if not exists micro_plan jsonb;
+
+export async function analyzeStudentStruggles(uid, lessonNum) {
+  const { data: tests } = await supabase
+    .from('tests').select('*')
+    .eq('user_id', uid).eq('lesson_num', lessonNum).order('created_at');
+  const { data: lessons } = await supabase
+    .from('lessons').select('*')
+    .eq('user_id', uid).order('created_at');
+  return { tests: tests || [], lessons: lessons || [] };
+}
+
+export async function saveMicroPlan(uid, lessonNum, plan) {
+  await supabase.from('users').update({
+    micro_plan: { lessonNum, plan, startedAt: new Date().toISOString(),
+                  currentMicroLesson: 0, completedMicroLessons: [] }
+  }).eq('id', uid);
+}
+
+export async function updateMicroPlanProgress(uid, completedIndex) {
+  const { data } = await supabase.from('users')
+    .select('micro_plan').eq('id', uid).maybeSingle();
+  const mp = data?.micro_plan || {};
+  const updated = { ...mp,
+    currentMicroLesson: completedIndex + 1,
+    completedMicroLessons: [...(mp.completedMicroLessons || []), completedIndex] };
+  await supabase.from('users').update({ micro_plan: updated }).eq('id', uid);
+  return updated;
+}
+
+export async function clearMicroPlan(uid) {
+  await supabase.from('users').update({ micro_plan: null }).eq('id', uid);
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export async function getAllUsers() {
   const { data } = await supabase.from("users").select("*").order("created_at");
