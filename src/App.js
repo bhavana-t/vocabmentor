@@ -7,12 +7,13 @@ import {
   saveProfile, saveLesson, saveTest, saveEssay, updateEssay,
   advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession,
   getBasicUser, analyzeStudentStruggles, saveMicroPlan,
-  updateMicroPlanProgress, clearMicroPlan
+  updateMicroPlanProgress, clearMicroPlan,
+  getImprovementHistory, saveImprovementTracking
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
   assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson,
-  analyzeAndCreateMicroPlan
+  analyzeAndCreateMicroPlan, evaluateImprovementApplication
 } from "./gemini";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -697,6 +698,35 @@ function EssayView({ user, onBack }) {
   );
 }
 
+// ── Improvement tracking helper ───────────────────────────────────────────────
+function computeUpdatedTracking(existingTracking, evalResult, checkedSuggestions) {
+  const base = existingTracking || { improvements: [] };
+  const scores = evalResult?.improvementAccountability?.improvementScores || [];
+  const newSugs = evalResult?.feedback?.improvements || [];
+  const updated = { improvements: JSON.parse(JSON.stringify(base.improvements || [])) };
+
+  for (const item of scores) {
+    let entry = updated.improvements.find(e => e.suggestion === item.suggestion);
+    if (!entry) {
+      entry = { suggestion: item.suggestion, firstSuggested: new Date().toISOString(), timesApplied: 0, timesChecked: 0, masteryPercent: 0, mastered: false };
+      updated.improvements.push(entry);
+    }
+    entry.timesChecked++;
+    if (item.applied === "yes") entry.timesApplied++;
+    else if (item.applied === "partially") entry.timesApplied += 0.5;
+    entry.masteryPercent = Math.round(entry.timesApplied / entry.timesChecked * 100);
+    entry.mastered = entry.masteryPercent >= 80 && entry.timesChecked >= 2;
+  }
+
+  for (const sug of newSugs) {
+    if (!updated.improvements.find(e => e.suggestion === sug)) {
+      updated.improvements.push({ suggestion: sug, firstSuggested: new Date().toISOString(), timesApplied: 0, timesChecked: 0, masteryPercent: 0, mastered: false });
+    }
+  }
+
+  return updated;
+}
+
 // ── Lesson View ───────────────────────────────────────────────────────────────
 function LessonView({ user, lessonNum, day, onDayComplete }) {
   const [lesson, setLesson] = useState(null);
@@ -707,13 +737,16 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   const [feedback, setFeedback] = useState(null);
   const [draftSaved, setDraftSaved] = useState(false);
   const [reviewMistakes, setReviewMistakes] = useState([]);
+  const [improvementHistory, setImprovementHistory] = useState(null);
+  const [checkItems, setCheckItems] = useState({});
   const speech = useSpeech();
   const skill = SKILLS[(lessonNum-1)%SKILLS.length];
   const draftKey = `lesson_draft_${user.id}_${lessonNum}_${day}`;
+  const isGrade5Plus = user.profile?.type === "student" && parseInt(user.profile?.grade) >= 5;
 
   useEffect(()=>{
     (async()=>{
-      setLoading(true); setLesson(null); setAnswers({}); setSubmitted(false); setFeedback(null);
+      setLoading(true); setLesson(null); setAnswers({}); setSubmitted(false); setFeedback(null); setCheckItems({});
       const pastMistakes = (user.tests?.length > 0) ? {
         corrections: user.tests.flatMap(t => t.feedback?.corrections || []).slice(-10),
         weakSections: user.tests.filter(t => !t.passed).flatMap(t =>
@@ -723,6 +756,10 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
         essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
       } : null;
       setReviewMistakes(pastMistakes?.corrections?.slice(-2) || []);
+      if (isGrade5Plus) {
+        const hist = await getImprovementHistory(user.id).catch(() => null);
+        setImprovementHistory(hist);
+      }
       const result = await generateLesson(user.profile, lessonNum, day, skill, pastMistakes);
       setLoading(false);
       setLesson(result.type==="lesson"?result:null);
@@ -742,12 +779,16 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
   const checkAnswers = async () => {
     setEvalLoading(true);
     const kAnswers = lesson.exercises?.map((ex,i)=>({ q:ex.question, given:answers[i]||"", correct:ex.answer }));
-    const result = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, writing:answers.writing, speaking:answers.speaking });
+    const result = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, writing:answers.writing, speaking:answers.speaking }, false, isGrade5Plus ? improvementHistory : null);
     setEvalLoading(false);
     setFeedback(result);
     setSubmitted(true);
     localStorage.removeItem(draftKey);
     await saveLesson(user.id, { lesson_num:lessonNum, day, answers, feedback:result, created_at:new Date().toISOString() });
+    if (isGrade5Plus && result?.improvementAccountability) {
+      const updated = computeUpdatedTracking(user.improvement_tracking, result, improvementHistory?.suggestedImprovements?.slice(-3) || []);
+      saveImprovementTracking(user.id, updated).catch(() => {});
+    }
   };
 
   if (loading) return <div style={{ padding:40 }}><Spinner label={`Generating Lesson ${lessonNum}...`}/></div>;
@@ -783,6 +824,21 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
               </div>
             ))}
             <div style={{ fontSize:12, color:C.sky, marginTop:4 }}>Keep these in mind as you work through today's lesson 💪</div>
+          </div>
+        )}
+
+        {/* Focus Points for Grade 5+ */}
+        {isGrade5Plus && improvementHistory?.suggestedImprovements?.length > 0 && !submitted && (
+          <div style={{ background:`linear-gradient(135deg,rgba(255,183,3,0.18),rgba(255,152,0,0.1))`, border:`1px solid ${C.warn}55`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.warn, fontWeight:700, marginBottom:6, letterSpacing:"0.05em" }}>📌 YOUR FOCUS POINTS FOR TODAY</div>
+            <h3 style={{ ...S.h3, marginBottom:8, color:C.gold }}>Remember to Apply These!</h3>
+            {improvementHistory.suggestedImprovements.slice(-3).map((imp,i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:"rgba(0,0,0,0.2)", borderRadius:8, padding:"8px 12px", marginBottom:6 }}>
+                <span style={{ fontSize:15 }}>🎯</span>
+                <span style={{ fontSize:13, color:C.sky }}>{imp}</span>
+              </div>
+            ))}
+            <p style={{ fontSize:12, color:C.warn, marginTop:8, marginBottom:0 }}>Today's evaluation will check if you've applied these!</p>
           </div>
         )}
 
@@ -847,6 +903,20 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
           <h3 style={S.h3}>✍️ Writing Practice</h3>
           <p style={{ fontSize:14, color:C.sky, marginBottom:10 }}>Write a short paragraph using at least 2 of today's words and the concept you learned.</p>
           <textarea style={{ ...S.input, minHeight:120, resize:"vertical" }} placeholder="Start writing here..." value={answers.writing||""} onChange={e=>setAnswers({...answers,writing:e.target.value})} disabled={submitted}/>
+          {isGrade5Plus && improvementHistory?.suggestedImprovements?.length > 0 && !submitted && (
+            <div style={{ marginTop:12, background:"rgba(255,183,3,0.08)", border:`1px solid ${C.warn}33`, borderRadius:10, padding:14 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:C.warn, marginBottom:8 }}>✅ Before submitting, check:</div>
+              {improvementHistory.suggestedImprovements.slice(-3).map((imp,i) => (
+                <label key={i} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, cursor:"pointer" }}>
+                  <input type="checkbox" checked={!!checkItems[i]} onChange={e => setCheckItems({...checkItems,[i]:e.target.checked})} style={{ accentColor:C.warn, width:16, height:16, flexShrink:0 }}/>
+                  <span style={{ fontSize:13, color:checkItems[i]?C.sage:C.sky, textDecoration:checkItems[i]?"line-through none":"none" }}>{imp}</span>
+                </label>
+              ))}
+              {Object.keys(checkItems).length > 0 && !improvementHistory.suggestedImprovements.slice(-3).every((_,i) => checkItems[i]) && (
+                <div style={{ fontSize:12, color:C.warn, marginTop:4 }}>Have you applied all your focus points? The app will check!</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Read Aloud */}
@@ -883,6 +953,47 @@ function LessonView({ user, lessonNum, day, onDayComplete }) {
               ))}
             </>}
             <p style={{ color:C.sky, fontStyle:"italic", marginTop:12 }}>{feedback.encouragement}</p>
+          </div>
+        )}
+
+        {/* Improvement Report for Grade 5+ */}
+        {submitted && isGrade5Plus && feedback?.improvementAccountability?.improvementScores?.length > 0 && (
+          <div style={{ ...S.card, marginBottom:16, background:"rgba(244,162,97,0.05)", border:`1px solid ${C.gold}33` }}>
+            <h3 style={S.h3}>📊 Improvement Report</h3>
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead>
+                  <tr style={{ borderBottom:`1px solid rgba(255,255,255,0.1)` }}>
+                    <th style={{ textAlign:"left", padding:"6px 8px", color:C.sky }}>Focus Point</th>
+                    <th style={{ textAlign:"center", padding:"6px 8px", color:C.sky }}>Applied?</th>
+                    <th style={{ textAlign:"center", padding:"6px 8px", color:C.sky }}>Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feedback.improvementAccountability.improvementScores.map((s,i) => (
+                    <tr key={i} style={{ borderBottom:`1px solid rgba(255,255,255,0.06)` }}>
+                      <td style={{ padding:"8px", color:C.cream, fontSize:12 }}>{s.suggestion}</td>
+                      <td style={{ padding:"8px", textAlign:"center" }}>
+                        <span style={{ color:s.applied==="yes"?C.sage:s.applied==="partially"?C.warn:C.coral }}>
+                          {s.applied==="yes"?"✅ Yes":s.applied==="partially"?"⚠️ Partially":"❌ Not yet"}
+                        </span>
+                      </td>
+                      <td style={{ padding:"8px", textAlign:"center", fontWeight:700, color:s.bonus>0?C.sage:C.muted }}>+{s.bonus||0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {feedback.improvementAccountability.improvementBonus > 0 ? (
+              <div style={{ marginTop:12, background:`${C.sage}22`, borderRadius:8, padding:12 }}>
+                <div style={{ color:C.sage, fontWeight:700, marginBottom:4 }}>🌟 +{feedback.improvementAccountability.improvementBonus} Bonus Points Earned!</div>
+                <div style={{ fontSize:13, color:C.sky }}>{feedback.improvementAccountability.accountabilityMessage}</div>
+              </div>
+            ) : (
+              <div style={{ marginTop:12, background:"rgba(255,255,255,0.04)", borderRadius:8, padding:12 }}>
+                <div style={{ fontSize:13, color:C.sky }}>{feedback.improvementAccountability.accountabilityMessage || `Applied ${feedback.improvementAccountability.applied?.length||0} of ${feedback.improvementAccountability.previousSuggestions?.length||0} focus points. Keep working on them — you're getting there!`}</div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1085,13 +1196,16 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [improvementHistory, setImprovementHistory] = useState(null);
+  const [checkItems, setCheckItems] = useState({});
   const speech = useSpeech();
   const skill = SKILLS[(lessonNum-1)%SKILLS.length];
   const draftKey = `test_draft_${user.id}_${lessonNum}_${attemptNum}`;
+  const isGrade5Plus = user.profile?.type === "student" && parseInt(user.profile?.grade) >= 5;
 
   useEffect(()=>{
     (async()=>{
-      setLoading(true);
+      setLoading(true); setCheckItems({});
       const pastMistakes = {
         corrections: (user.tests?.flatMap(t => t.feedback?.corrections || []) || []).slice(-10),
         weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
@@ -1100,7 +1214,13 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
         improvements: (user.tests?.flatMap(t => t.feedback?.improvements || []) || []).slice(-5),
         essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
       };
-      const r = await generateTest(user.profile, lessonNum, attemptNum, skill, pastMistakes);
+      let hist = null;
+      if (isGrade5Plus) {
+        hist = await getImprovementHistory(user.id).catch(() => null);
+        setImprovementHistory(hist);
+      }
+      const improvSugs = hist?.suggestedImprovements?.slice(-3) || [];
+      const r = await generateTest(user.profile, lessonNum, attemptNum, skill, pastMistakes, improvSugs);
       setLoading(false);
       setTest(r.type==="test"?r:null);
       const saved = localStorage.getItem(`test_draft_${user.id}_${lessonNum}_${attemptNum}`);
@@ -1121,10 +1241,14 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
     const sec = test.sections;
     const kAnswers = sec.knowledge?.map((q,i)=>({ q:q.question, given:answers[`k${i}`]||"", correct:q.answer }));
     const aAnswers = sec.application?.map((q,i)=>({ q:q.question, given:answers[`a${i}`]||"", correct:q.answer }));
-    const ev = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, application:aAnswers, writing:answers.writing, speaking:answers.speaking }, true);
+    const ev = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, application:aAnswers, writing:answers.writing, speaking:answers.speaking }, true, isGrade5Plus ? improvementHistory : null);
     const record = { lesson_num:lessonNum, skill, attempt_num:attemptNum, scores:ev.scores, passed:ev.passed, answers, feedback:ev.feedback, created_at:new Date().toISOString() };
     await saveTest(user.id, record);
     localStorage.removeItem(draftKey);
+    if (isGrade5Plus && ev?.improvementAccountability) {
+      const updated = computeUpdatedTracking(user.improvement_tracking, ev, improvementHistory?.suggestedImprovements?.slice(-3) || []);
+      saveImprovementTracking(user.id, updated).catch(() => {});
+    }
     setResult(ev); setSubmitted(true); setSubmitting(false);
   };
 
@@ -1144,6 +1268,21 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
 
       <div style={{ maxWidth:720, margin:"0 auto", padding:"0 16px" }}>
         {!submitted ? <>
+          {/* Focus Points reminder for Grade 5+ */}
+          {isGrade5Plus && improvementHistory?.suggestedImprovements?.length > 0 && (
+            <div style={{ background:`linear-gradient(135deg,rgba(255,183,3,0.18),rgba(255,152,0,0.1))`, border:`1px solid ${C.warn}55`, borderRadius:16, padding:20, marginBottom:16 }}>
+              <div style={{ fontSize:12, color:C.warn, fontWeight:700, marginBottom:6, letterSpacing:"0.05em" }}>📌 YOUR FOCUS POINTS FOR TODAY'S TEST</div>
+              <h3 style={{ ...S.h3, marginBottom:8, color:C.gold }}>Show Your Improvement!</h3>
+              {improvementHistory.suggestedImprovements.slice(-3).map((imp,i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:"rgba(0,0,0,0.2)", borderRadius:8, padding:"8px 12px", marginBottom:6 }}>
+                  <span style={{ fontSize:15 }}>🎯</span>
+                  <span style={{ fontSize:13, color:C.sky }}>{imp}</span>
+                </div>
+              ))}
+              <p style={{ fontSize:12, color:C.warn, marginTop:8, marginBottom:0 }}>Your writing section will be scored for applying these. Bonus points available!</p>
+            </div>
+          )}
+
           {/* Section A */}
           <div style={{ ...S.card, marginBottom:16 }}>
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
@@ -1184,6 +1323,20 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
               <div style={{ background:"rgba(244,162,97,0.1)", borderRadius:10, padding:14, marginBottom:10, fontSize:15 }}>{sec.writing.prompt}</div>
               <div style={{ fontSize:12, color:C.muted, marginBottom:8 }}>Min {sec.writing.minWords} words · {sec.writing.criteria?.join(", ")}</div>
               <textarea style={{ ...S.input, minHeight:150, resize:"vertical" }} value={answers.writing||""} onChange={e=>setAnswers({...answers,writing:e.target.value})} placeholder="Write here..."/>
+              {isGrade5Plus && improvementHistory?.suggestedImprovements?.length > 0 && (
+                <div style={{ marginTop:12, background:"rgba(255,183,3,0.08)", border:`1px solid ${C.warn}33`, borderRadius:10, padding:14 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.warn, marginBottom:8 }}>✅ Before submitting, check:</div>
+                  {improvementHistory.suggestedImprovements.slice(-3).map((imp,i) => (
+                    <label key={i} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, cursor:"pointer" }}>
+                      <input type="checkbox" checked={!!checkItems[i]} onChange={e => setCheckItems({...checkItems,[i]:e.target.checked})} style={{ accentColor:C.warn, width:16, height:16, flexShrink:0 }}/>
+                      <span style={{ fontSize:13, color:checkItems[i]?C.sage:C.sky }}>{imp}</span>
+                    </label>
+                  ))}
+                  {Object.keys(checkItems).length > 0 && !improvementHistory.suggestedImprovements.slice(-3).every((_,i) => checkItems[i]) && (
+                    <div style={{ fontSize:12, color:C.warn, marginTop:4 }}>Have you applied all your focus points? The app will check!</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1225,6 +1378,48 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
               <h3 style={S.h3}>Score Breakdown</h3>
               {result.scores && Object.entries(result.scores).filter(([k])=>k!=="total").map(([k,v])=><ScoreBar key={k} label={k.charAt(0).toUpperCase()+k.slice(1)} score={v}/>)}
             </div>
+            {isGrade5Plus && result?.improvementAccountability?.improvementScores?.length > 0 && (
+              <div style={{ ...S.card, marginBottom:16, background:"rgba(244,162,97,0.05)", border:`1px solid ${C.gold}33` }}>
+                <h3 style={S.h3}>📈 Improvement Score</h3>
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                    <thead>
+                      <tr style={{ borderBottom:`1px solid rgba(255,255,255,0.1)` }}>
+                        <th style={{ textAlign:"left", padding:"6px 8px", color:C.sky }}>Focus Point</th>
+                        <th style={{ textAlign:"center", padding:"6px 8px", color:C.sky }}>Applied?</th>
+                        <th style={{ textAlign:"center", padding:"6px 8px", color:C.sky }}>Points</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.improvementAccountability.improvementScores.map((s,i) => (
+                        <tr key={i} style={{ borderBottom:`1px solid rgba(255,255,255,0.06)` }}>
+                          <td style={{ padding:"8px", color:C.cream, fontSize:12 }}>{s.suggestion}</td>
+                          <td style={{ padding:"8px", textAlign:"center" }}>
+                            <span style={{ color:s.applied==="yes"?C.sage:s.applied==="partially"?C.warn:C.coral }}>
+                              {s.applied==="yes"?"✅ Yes":s.applied==="partially"?"⚠️ Partially":"❌ Not yet"}
+                            </span>
+                          </td>
+                          <td style={{ padding:"8px", textAlign:"center", fontWeight:700, color:s.bonus>0?C.sage:C.muted }}>+{s.bonus||0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop:10, display:"flex", justifyContent:"space-between", alignItems:"center", background:"rgba(255,255,255,0.04)", borderRadius:8, padding:"8px 12px" }}>
+                  <span style={{ fontSize:13, color:C.sky }}>Total improvement bonus:</span>
+                  <span style={{ fontSize:15, fontWeight:800, color:C.gold }}>+{result.improvementAccountability.improvementBonus||0} points</span>
+                </div>
+                {result.improvementAccountability.improvementBonus > 0 ? (
+                  <div style={{ marginTop:10, background:`${C.sage}22`, borderRadius:8, padding:10, fontSize:13, color:C.sage }}>
+                    🌟 Amazing! These bonus points are added to your writing score!
+                  </div>
+                ) : (
+                  <div style={{ marginTop:10, background:"rgba(255,255,255,0.04)", borderRadius:8, padding:10, fontSize:13, color:C.sky }}>
+                    {result.improvementAccountability.accountabilityMessage || "Keep working on your focus points — you're getting there!"}
+                  </div>
+                )}
+              </div>
+            )}
             {result.feedback?.corrections?.length>0 && (
               <div style={{ ...S.card, marginBottom:16 }}>
                 <h3 style={S.h3}>✏️ Corrections</h3>
@@ -1469,6 +1664,35 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Growth Tracker for Grade 5+ */}
+        {p?.type==="student" && parseInt(p?.grade) >= 5 && user.improvement_tracking?.improvements?.length > 0 && (
+          <div style={{ ...S.card, marginBottom:20 }}>
+            <h3 style={S.h3}>📈 Your Growth Tracker</h3>
+            <p style={{ fontSize:13, color:C.muted, marginBottom:14 }}>Track how well you've been applying your teacher's suggestions over time.</p>
+            {user.improvement_tracking.improvements.map((item, i) => {
+              const pct = item.masteryPercent || 0;
+              const color = item.mastered ? C.sage : pct >= 50 ? C.teal : pct >= 25 ? C.warn : C.coral;
+              return (
+                <div key={i} style={{ marginBottom:16 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                    <span style={{ fontSize:13, flex:1, paddingRight:8 }}>{item.suggestion}</span>
+                    {item.mastered && <span style={{ fontSize:11, color:C.sage, fontWeight:700, whiteSpace:"nowrap" }}>✨ Mastered!</span>}
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ flex:1, background:"rgba(255,255,255,0.08)", borderRadius:99, height:8, overflow:"hidden" }}>
+                      <div style={{ width:`${pct}%`, background:color, height:"100%", borderRadius:99, transition:"width 0.5s" }}/>
+                    </div>
+                    <span style={{ fontSize:12, color, fontWeight:700, minWidth:36, textAlign:"right" }}>{pct}%</span>
+                  </div>
+                  <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
+                    Applied {item.timesApplied||0} of {item.timesChecked||0} times checked
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

@@ -156,7 +156,7 @@ Respond with this exact JSON:
 }
 
 // ── Test generation ───────────────────────────────────────────────────────────
-export async function generateTest(profile, lessonNum, attemptNum, skill, pastMistakes) {
+export async function generateTest(profile, lessonNum, attemptNum, skill, pastMistakes, improvementSuggestions = []) {
   const ctx = profile.type === "student"
     ? `Student: ${profile.name}, Grade ${profile.grade}, Level: ${profile.level}`
     : `Adult: ${profile.name}, Career: ${profile.career}, Level: ${profile.level}`;
@@ -167,11 +167,17 @@ export async function generateTest(profile, lessonNum, attemptNum, skill, pastMi
 Past weak areas: ${weakSections.join(", ")}. Weight these sections slightly heavier in question count to help the student practice more.
 ${speakingWeak ? "Speaking has been consistently weak — make the speaking passage shorter and simpler to build confidence." : ""}` : "";
 
+  const isGrade5Plus = profile?.type === "student" && parseInt(profile?.grade) >= 5;
+  const improvementPromptCtx = (isGrade5Plus && improvementSuggestions.length > 0) ? `
+For the writing section prompt, include this additional instruction to the student:
+"In your answer, make sure to demonstrate: ${improvementSuggestions.slice(0,3).map((s,i)=>`${i+1}. ${s}`).join('; ')}. These will be scored separately for improvement bonus points."` : "";
+
   return callGemini(`Generate a formal TEST.
 ${ctx}
 Lesson ${lessonNum}, Skill: ${skill}, Attempt ${attemptNum}.
 ${attemptNum > 1 ? "Use COMPLETELY DIFFERENT questions from previous attempts." : ""}
 ${weakCtx}
+${improvementPromptCtx}
 
 Respond with this exact JSON:
 {
@@ -325,8 +331,85 @@ Respond with this exact JSON:
 }`, (msg) => console.log("Micro plan:", msg));
 }
 
+// ── Improvement evaluation ────────────────────────────────────────────────────
+export async function evaluateImprovementApplication(profile, currentAnswer, suggestedImprovements, pastCorrections, skill) {
+  const grade = profile.type === "student" ? `Grade ${profile.grade}` : profile.career;
+
+  return callGemini(`You are evaluating a ${grade} student's ${skill} answer.
+
+CRITICAL TASK: Check if they have APPLIED these previously suggested improvements from their past lessons and tests:
+
+Previously suggested improvements:
+${suggestedImprovements.map((s,i) => `${i+1}. ${s}`).join('\n')}
+
+Past corrections they were given:
+${pastCorrections.slice(0,10).map(c => `"${c.original}" → "${c.corrected}": ${c.explanation||""}`).join('\n')}
+
+Current answer to evaluate:
+${currentAnswer}
+
+For each previously suggested improvement, check:
+1. Did they apply it? (yes/no/partially)
+2. Give a specific example from their current answer showing if they applied it or not
+
+Respond with this exact JSON:
+{
+  "type": "improvement_evaluation",
+  "improvementScores": [
+    {
+      "improvement": "string (the suggested improvement)",
+      "applied": "yes|no|partially",
+      "evidence": "string (specific quote from their answer)",
+      "score": 0,
+      "feedback": "string (specific encouraging feedback)"
+    }
+  ],
+  "overallImprovementScore": 0,
+  "appliedCount": 0,
+  "totalSuggestions": 0,
+  "standoutImprovement": "string (best thing they improved)",
+  "stillNeedsWork": "string (one thing to keep working on)",
+  "encouragement": "string (warm specific praise for what they applied)"
+}`);
+}
+
 // ── Evaluation ────────────────────────────────────────────────────────────────
-export async function evaluateSubmission(profile, skill, answers, isTest = false) {
+export async function evaluateSubmission(profile, skill, answers, isTest = false, improvementHistory = null) {
+  const isGrade5Plus = profile?.type === "student" && parseInt(profile?.grade) >= 5;
+  const improvements = improvementHistory?.suggestedImprovements?.slice(-3) || [];
+  const corrections = improvementHistory?.pastCorrections?.slice(-5) || [];
+
+  const accountabilityBlock = (isGrade5Plus && improvements.length > 0) ? `
+IMPROVEMENT ACCOUNTABILITY (Grade 5+ student):
+
+Previously suggested improvements for this student:
+${improvements.map((s,i) => `${i+1}. ${s}`).join('\n')}
+
+Past corrections:
+${corrections.map(c => `"${c.original}" → "${c.corrected}": ${c.explanation||""}`).join('\n')}
+
+When scoring writing and speaking sections:
+- Clearly applied a previously suggested improvement: +10 points to that section
+- Partially applied: +5 points
+- Ignored: note it explicitly in corrections
+
+In your corrections section, start the first correction with: "From last time, you were asked to work on [X]. In this answer you [did/did not] apply this because [specific evidence]."
+
+For 'improvementAccountability', return per-suggestion scores, applied/notApplied arrays, bonus points, and an encouraging accountabilityMessage.` : "";
+
+  const accountabilitySchema = (isGrade5Plus && improvements.length > 0) ? `
+  "improvementAccountability": {
+    "previousSuggestions": ["string"],
+    "improvementScores": [
+      {"suggestion": "string", "applied": "yes|no|partially", "evidence": "string", "bonus": 0}
+    ],
+    "applied": ["string (what they successfully applied)"],
+    "notApplied": ["string (what they still need to work on)"],
+    "improvementBonus": 0,
+    "accountabilityMessage": "string"
+  },` : `
+  "improvementAccountability": null,`;
+
   return callGemini(`Evaluate this ${isTest ? "TEST" : "exercise"} submission.
 Profile: ${profile.type}, Level: ${profile.level}, Skill: ${skill}
 
@@ -336,6 +419,7 @@ Writing response: ${answers.writing || "(none)"}
 Speaking transcript: ${answers.speaking || "(none)"}
 
 ${isTest ? "Score each section 0-100. Pass = 75%+ overall AND no section below 60%." : "Give encouraging feedback on exercises."}
+${accountabilityBlock}
 
 Respond with this exact JSON:
 {
@@ -349,7 +433,7 @@ Respond with this exact JSON:
       {"original": "string", "corrected": "string", "explanation": "string"}
     ]
   },
-  "encouragement": "string"
+  "encouragement": "string",${accountabilitySchema}
 }`);
 }
 

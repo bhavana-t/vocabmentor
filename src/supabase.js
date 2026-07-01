@@ -275,6 +275,41 @@ export async function clearMicroPlan(uid) {
   await supabase.from('users').update({ micro_plan: null }).eq('id', uid);
 }
 
+// ── Improvement tracking ──────────────────────────────────────────────────────
+// SQL needed: alter table users add column if not exists improvement_tracking jsonb;
+
+export async function getImprovementHistory(uid) {
+  const { data: tests } = await supabase
+    .from('tests')
+    .select('*')
+    .eq('user_id', uid)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const { data: lessons } = await supabase
+    .from('lessons')
+    .select('*')
+    .eq('user_id', uid)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const suggestedImprovements = [
+    ...(tests || []).flatMap(t => t.feedback?.improvements || []),
+    ...(lessons || []).flatMap(l => l.feedback?.feedback?.improvements || [])
+  ];
+
+  const pastCorrections = [
+    ...(tests || []).flatMap(t => t.feedback?.corrections || []),
+    ...(lessons || []).flatMap(l => l.feedback?.feedback?.corrections || [])
+  ];
+
+  return { suggestedImprovements, pastCorrections, tests, lessons };
+}
+
+export async function saveImprovementTracking(uid, tracking) {
+  await supabase.from('users').update({ improvement_tracking: tracking }).eq('id', uid);
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export async function getAllUsers() {
   const { data } = await supabase.from("users").select("*").order("created_at");
