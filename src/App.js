@@ -9,7 +9,7 @@ import {
   getBasicUser, analyzeStudentStruggles, saveMicroPlan,
   updateMicroPlanProgress, clearMicroPlan,
   getImprovementHistory, saveImprovementTracking,
-  getChildByUsername
+  findStudentByEmail
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
@@ -1963,17 +1963,17 @@ function HistoryView({ user, onRetry }) {
 
 // ── Parent View ───────────────────────────────────────────────────────────────
 function ParentView({ onBack }) {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [child, setChild] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const lookup = async () => {
-    if (!username.trim()) return setErr("Enter your child's username.");
+    if (!email.trim()) return setErr("Enter your child's email address.");
     setLoading(true); setErr(""); setChild(null);
-    const data = await getChildByUsername(username).catch(() => null);
+    const data = await findStudentByEmail(email).catch(() => null);
     setLoading(false);
-    if (!data) return setErr("No student found with that username. Please check and try again.");
+    if (!data) return setErr("No student found with that email address. Please check and try again.");
     if (!data.profile) return setErr("This student hasn't set up their profile yet.");
     setChild(data);
   };
@@ -2024,22 +2024,23 @@ function ParentView({ onBack }) {
         {!child && (
           <div style={{ ...S.card, marginBottom:20 }}>
             <h3 style={S.h3}>Find Your Child's Progress</h3>
-            <p style={{ fontSize:14, color:C.sky, marginBottom:16 }}>Enter your child's VocabMentor username to view their progress report. Ask your child for their username from their profile.</p>
-            <label style={S.label}>Child's username</label>
-            <div style={{ display:"flex", gap:10 }}>
-              <input style={{ ...S.input, flex:1 }} placeholder="e.g. alex123" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&lookup()}/>
+            <p style={{ fontSize:14, color:C.sky, marginBottom:16 }}>Enter the email address your child used to register on VocabMentor to view their progress report.</p>
+            <label style={S.label}>Child's email address</label>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              <input style={{ ...S.input, flex:1, minWidth:200 }} type="email" placeholder="Enter your child's email e.g. child@gmail.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&lookup()}/>
               <button style={S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`)} onClick={lookup} disabled={loading}>
                 {loading ? "Searching..." : "View Progress →"}
               </button>
             </div>
-            {err && <Alert type="error">{err}</Alert>}
+            <p style={{ fontSize:12, color:C.muted, marginTop:8, marginBottom:0 }}>💡 Enter the email address your child used to register on VocabMentor</p>
+            {err && <div style={{ marginTop:10 }}><Alert type="error">{err}</Alert></div>}
             {loading && <div style={{ marginTop:16 }}><Spinner label="Looking up student..."/></div>}
           </div>
         )}
 
         {child && p && <>
           {/* Back to search */}
-          <button onClick={()=>{ setChild(null); setUsername(""); }} style={{ ...S.btn("rgba(255,255,255,0.08)"), marginBottom:16, fontSize:13, border:"1px solid rgba(255,255,255,0.1)" }}>
+          <button onClick={()=>{ setChild(null); setEmail(""); }} style={{ ...S.btn("rgba(255,255,255,0.08)"), marginBottom:16, fontSize:13, border:"1px solid rgba(255,255,255,0.1)" }}>
             🔍 Search for a different student
           </button>
 

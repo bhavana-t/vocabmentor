@@ -311,11 +311,11 @@ export async function saveImprovementTracking(uid, tracking) {
 }
 
 // ── Parent view ───────────────────────────────────────────────────────────────
-export async function getChildByUsername(username) {
+export async function findStudentByEmail(email) {
   const { data } = await supabase
     .from('users')
     .select('*')
-    .ilike('username', username.trim())
+    .ilike('email', email.trim())
     .maybeSingle();
   if (!data) return null;
   const tests = await getUserTests(data.id);
