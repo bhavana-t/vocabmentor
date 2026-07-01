@@ -310,6 +310,20 @@ export async function saveImprovementTracking(uid, tracking) {
   await supabase.from('users').update({ improvement_tracking: tracking }).eq('id', uid);
 }
 
+// ── Parent view ───────────────────────────────────────────────────────────────
+export async function getChildByUsername(username) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('username', username.trim())
+    .maybeSingle();
+  if (!data) return null;
+  const tests = await getUserTests(data.id);
+  const lessons = await getUserLessons(data.id);
+  const essays = await getUserEssays(data.id);
+  return { ...data, tests, lessons, essays };
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export async function getAllUsers() {
   const { data } = await supabase.from("users").select("*").order("created_at");

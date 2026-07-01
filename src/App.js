@@ -8,7 +8,8 @@ import {
   advanceDay, advanceLesson, getAllUsers, getUserData, clearStaleSession,
   getBasicUser, analyzeStudentStruggles, saveMicroPlan,
   updateMicroPlanProgress, clearMicroPlan,
-  getImprovementHistory, saveImprovementTracking
+  getImprovementHistory, saveImprovementTracking,
+  getChildByUsername
 } from "./supabase";
 import {
   generateLesson, generateTest, evaluateSubmission,
@@ -125,7 +126,7 @@ function scheduleReminder(essayTitle, days) {
 }
 
 // ── Landing / Auth ────────────────────────────────────────────────────────────
-function LandingPage({ onLogin, onGuest, onAdmin, loading }) {
+function LandingPage({ onLogin, onGuest, onAdmin, onParent, loading }) {
   const [mode, setMode] = useState("landing");
   const [form, setForm] = useState({ username:"", email:"", password:"", confirm:"" });
   const [err, setErr] = useState("");
@@ -196,7 +197,10 @@ function LandingPage({ onLogin, onGuest, onAdmin, loading }) {
         <button style={S.btn("rgba(255,255,255,0.1)")} onClick={()=>setMode("login")}>Log In</button>
         <button style={S.btn("rgba(255,255,255,0.05)")} onClick={onGuest}>👀 Preview</button>
       </div>
-      <button style={{ marginTop:20, background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:12 }} onClick={()=>setMode("admin")}>Admin</button>
+      <div style={{ display:"flex", gap:16, marginTop:20, justifyContent:"center" }}>
+        <button style={{ background:"none", border:"none", color:C.sky, cursor:"pointer", fontSize:13, fontWeight:600 }} onClick={onParent}>👨‍👩‍👧 Parent View</button>
+        <button style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:12 }} onClick={()=>setMode("admin")}>Admin</button>
+      </div>
     </div>
   );
 
@@ -1957,6 +1961,313 @@ function HistoryView({ user, onRetry }) {
   );
 }
 
+// ── Parent View ───────────────────────────────────────────────────────────────
+function ParentView({ onBack }) {
+  const [username, setUsername] = useState("");
+  const [child, setChild] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const lookup = async () => {
+    if (!username.trim()) return setErr("Enter your child's username.");
+    setLoading(true); setErr(""); setChild(null);
+    const data = await getChildByUsername(username).catch(() => null);
+    setLoading(false);
+    if (!data) return setErr("No student found with that username. Please check and try again.");
+    if (!data.profile) return setErr("This student hasn't set up their profile yet.");
+    setChild(data);
+  };
+
+  const tests = child?.tests || [];
+  const lessons = child?.lessons || [];
+  const essays = child?.essays || [];
+  const p = child?.profile;
+
+  // Computed stats
+  const passed = tests.filter(t => t.passed).length;
+  const avgScore = tests.length ? Math.round(tests.reduce((s,t) => s+(t.scores?.total||0), 0) / tests.length) : null;
+  const recentTests = tests.slice(-5);
+  const SECTION_KEYS = ["knowledge","application","writing","speaking"];
+  const sectionAvg = k => { const vals = tests.map(t=>t.scores?.[k]).filter(v=>v!=null); return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null; };
+  const sectionAvgs = SECTION_KEYS.map(k => ({ key:k, avg:sectionAvg(k) })).filter(x=>x.avg!=null);
+  const lowestSection = sectionAvgs.length ? sectionAvgs.reduce((a,b)=>a.avg<b.avg?a:b) : null;
+  const mostImproved = (() => {
+    if (tests.length < 3) return null;
+    let best = null, bestDiff = 0;
+    for (const key of SECTION_KEYS) {
+      const first = tests[0]?.scores?.[key]; const last = tests[tests.length-1]?.scores?.[key];
+      if (first!=null && last!=null && (last-first) > bestDiff) { bestDiff=last-first; best=key; }
+    }
+    return best;
+  })();
+  const allCorrections = tests.flatMap(t => t.feedback?.corrections || []);
+  const correctionFreq = {};
+  allCorrections.forEach(c => { const k=c.original||""; correctionFreq[k]=(correctionFreq[k]||0)+1; });
+  const topMistakes = Object.entries(correctionFreq).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k]) => allCorrections.find(c=>c.original===k)).filter(Boolean);
+  const allImprovements = tests.flatMap(t => t.feedback?.improvements || []).slice(-4);
+  const trackingItems = child?.improvement_tracking?.improvements || [];
+
+  return (
+    <div style={{ ...S.app, paddingBottom:60 }}>
+      <div style={{ background:`linear-gradient(135deg,${C.royal},${C.navy})`, padding:"20px 24px", marginBottom:20 }}>
+        <div style={{ maxWidth:720, margin:"0 auto", display:"flex", alignItems:"center", gap:16 }}>
+          <button onClick={onBack} style={{ ...S.btn("rgba(255,255,255,0.1)"), padding:"6px 14px", fontSize:13 }}>← Back</button>
+          <div>
+            <h2 style={{ ...S.h2, marginBottom:2 }}>👨‍👩‍👧 Parent View</h2>
+            <p style={{ fontSize:13, color:C.sky, margin:0 }}>Track your child's learning progress</p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:720, margin:"0 auto", padding:"0 16px" }}>
+        {/* Lookup form */}
+        {!child && (
+          <div style={{ ...S.card, marginBottom:20 }}>
+            <h3 style={S.h3}>Find Your Child's Progress</h3>
+            <p style={{ fontSize:14, color:C.sky, marginBottom:16 }}>Enter your child's VocabMentor username to view their progress report. Ask your child for their username from their profile.</p>
+            <label style={S.label}>Child's username</label>
+            <div style={{ display:"flex", gap:10 }}>
+              <input style={{ ...S.input, flex:1 }} placeholder="e.g. alex123" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&lookup()}/>
+              <button style={S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`)} onClick={lookup} disabled={loading}>
+                {loading ? "Searching..." : "View Progress →"}
+              </button>
+            </div>
+            {err && <Alert type="error">{err}</Alert>}
+            {loading && <div style={{ marginTop:16 }}><Spinner label="Looking up student..."/></div>}
+          </div>
+        )}
+
+        {child && p && <>
+          {/* Back to search */}
+          <button onClick={()=>{ setChild(null); setUsername(""); }} style={{ ...S.btn("rgba(255,255,255,0.08)"), marginBottom:16, fontSize:13, border:"1px solid rgba(255,255,255,0.1)" }}>
+            🔍 Search for a different student
+          </button>
+
+          {/* Child profile header */}
+          <div style={{ background:`linear-gradient(135deg,${C.royal}cc,${C.teal}22)`, border:`1px solid ${C.teal}33`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:10 }}>
+              <div>
+                <h2 style={{ ...S.h2, marginBottom:6 }}>{p.name} 📖</h2>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  <Badge color={C.teal}>{p.level}</Badge>
+                  {p.grade && <Badge color={C.gold}>Grade {p.grade}</Badge>}
+                  {p.career && <Badge color={C.coral}>{p.career}</Badge>}
+                  <Badge color={C.mint}>{p.type==="student"?"Student":"Professional"}</Badge>
+                </div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:28, fontWeight:800, color:C.gold }}>{child.streak||0} 🔥</div>
+                <div style={{ fontSize:11, color:C.sky }}>Day Streak</div>
+              </div>
+            </div>
+            {child.last_active && <div style={{ fontSize:12, color:C.sky, marginTop:10 }}>🕐 Last active: {new Date(child.last_active).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>}
+            {p.goal && <div style={{ fontSize:13, color:C.sky, marginTop:4, fontStyle:"italic" }}>Goal: {p.goal}</div>}
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 }}>
+            {[
+              ["📚", child.current_lesson>1?child.current_lesson-1:0, "Lessons Done"],
+              ["✅", passed, "Tests Passed"],
+              ["📊", avgScore!=null?`${avgScore}%`:"—", "Avg Score"],
+              ["✍️", essays.filter(e=>e.status==="completed").length, "Essays Done"]
+            ].map(([icon,val,label])=>(
+              <div key={label} style={{ ...S.card, textAlign:"center", padding:16 }}>
+                <div style={{ fontSize:20, marginBottom:4 }}>{icon}</div>
+                <div style={{ fontSize:18, fontWeight:800, color:C.gold }}>{val}</div>
+                <div style={{ fontSize:10, color:C.sky }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Score trend */}
+          {recentTests.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📈 Recent Test Scores</h3>
+              <p style={{ fontSize:12, color:C.muted, marginBottom:14 }}>Last {recentTests.length} test{recentTests.length!==1?"s":""}</p>
+              {recentTests.map((t,i) => {
+                const score = t.scores?.total||0;
+                const color = t.passed ? C.sage : score>=60 ? C.warn : C.coral;
+                return (
+                  <div key={i} style={{ marginBottom:10 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                      <span style={{ color:C.sky }}>Lesson {t.lesson_num} — {t.skill} <span style={{ color:C.muted }}>({new Date(t.created_at).toLocaleDateString()})</span></span>
+                      <span style={{ fontWeight:700, color }}>{score}% {t.passed?"✓":"✗"}</span>
+                    </div>
+                    <div style={{ background:"rgba(255,255,255,0.08)", borderRadius:99, height:10, overflow:"hidden" }}>
+                      <div style={{ width:`${score}%`, background:color, height:"100%", borderRadius:99 }}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Section breakdown */}
+          {sectionAvgs.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📊 Skills Breakdown</h3>
+              <p style={{ fontSize:12, color:C.muted, marginBottom:14 }}>Average across all {tests.length} test{tests.length!==1?"s":""}</p>
+              {sectionAvgs.map(({key,avg}) => (
+                <ScoreBar key={key} label={key.charAt(0).toUpperCase()+key.slice(1)} score={avg}/>
+              ))}
+            </div>
+          )}
+
+          {/* Growth Tracker */}
+          {trackingItems.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📈 Improvement Tracker</h3>
+              <p style={{ fontSize:12, color:C.muted, marginBottom:14 }}>How consistently {p.name} applies suggestions from their teacher</p>
+              {trackingItems.map((item,i) => {
+                const pct = item.masteryPercent || 0;
+                const color = item.mastered ? C.sage : pct>=50 ? C.teal : pct>=25 ? C.warn : C.coral;
+                return (
+                  <div key={i} style={{ marginBottom:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <span style={{ fontSize:13, flex:1, paddingRight:8 }}>{item.suggestion}</span>
+                      {item.mastered && <span style={{ fontSize:11, color:C.sage, fontWeight:700, whiteSpace:"nowrap" }}>✨ Mastered!</span>}
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, background:"rgba(255,255,255,0.08)", borderRadius:99, height:8, overflow:"hidden" }}>
+                        <div style={{ width:`${pct}%`, background:color, height:"100%", borderRadius:99 }}/>
+                      </div>
+                      <span style={{ fontSize:12, color, fontWeight:700, minWidth:36, textAlign:"right" }}>{pct}%</span>
+                    </div>
+                    <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>Applied {item.timesApplied||0} of {item.timesChecked||0} times checked</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* What to encourage */}
+          <div style={{ background:`linear-gradient(135deg,rgba(0,180,216,0.12),${C.navy})`, border:`1px solid ${C.teal}44`, borderRadius:16, padding:20, marginBottom:16 }}>
+            <h3 style={{ ...S.h3, color:C.teal }}>💡 How You Can Help</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:12, marginTop:8 }}>
+              {child.streak >= 3 && (
+                <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>🔥</span>
+                  <div><div style={{ fontSize:13, fontWeight:700, color:C.gold }}>Keep the streak going!</div><div style={{ fontSize:13, color:C.sky }}>{p.name} has studied {child.streak} day{child.streak!==1?"s":""} in a row. Encourage them to study again tomorrow.</div></div>
+                </div>
+              )}
+              {lowestSection && (
+                <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>🎯</span>
+                  <div><div style={{ fontSize:13, fontWeight:700, color:C.warn }}>Focus area: {lowestSection.key}</div><div style={{ fontSize:13, color:C.sky }}>{p.name} scores an average of {lowestSection.avg}% in {lowestSection.key}. Ask them to explain one {lowestSection.key} concept to you — teaching helps learning!</div></div>
+                </div>
+              )}
+              {mostImproved && (
+                <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>📈</span>
+                  <div><div style={{ fontSize:13, fontWeight:700, color:C.sage }}>Celebrate their improvement!</div><div style={{ fontSize:13, color:C.sky }}>{p.name} has improved most in {mostImproved}. Tell them you noticed — specific praise builds confidence.</div></div>
+                </div>
+              )}
+              {topMistakes.length > 0 && (
+                <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>✏️</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.coral }}>Common corrections to review at home</div>
+                    {topMistakes.map((c,i) => (
+                      <div key={i} style={{ fontSize:12, color:C.sky, marginTop:4 }}>
+                        <span style={{ color:C.error }}>✗ {c.original}</span> → <span style={{ color:C.sage }}>✓ {c.corrected}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {allImprovements.length > 0 && (
+                <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>📌</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.sky }}>Current focus points from the app</div>
+                    {allImprovements.slice(0,3).map((imp,i) => (
+                      <div key={i} style={{ fontSize:12, color:C.sky, marginTop:4 }}>• {imp}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {tests.length === 0 && lessons.length === 0 && (
+                <div style={{ fontSize:13, color:C.sky }}>
+                  {p.name} is just getting started! Encourage them to complete their first lesson today.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Recent tests */}
+          {tests.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📝 Recent Tests</h3>
+              {tests.slice().reverse().slice(0,5).map((t,i) => (
+                <div key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.07)", paddingBottom:14, marginBottom:14 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14 }}>Lesson {t.lesson_num} — {t.skill}</div>
+                      <div style={{ fontSize:12, color:C.muted }}>{new Date(t.created_at).toLocaleDateString()} · Attempt {t.attempt_num||1}</div>
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                      <Badge color={t.passed?C.sage:C.error}>{t.passed?"✓ PASS":"✗ FAIL"}</Badge>
+                      <span style={{ fontSize:18, fontWeight:800, color:t.passed?C.sage:C.coral }}>{t.scores?.total||0}%</span>
+                    </div>
+                  </div>
+                  {t.scores && (
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:8 }}>
+                      {Object.entries(t.scores).filter(([k])=>k!=="total").map(([k,v])=>(
+                        <div key={k} style={{ background:"rgba(255,255,255,0.05)", borderRadius:6, padding:"6px 8px", textAlign:"center" }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:v>=75?C.sage:v>=60?C.warn:C.error }}>{v}%</div>
+                          <div style={{ fontSize:9, color:C.muted, textTransform:"capitalize" }}>{k}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {t.feedback?.strengths?.length > 0 && (
+                    <div style={{ marginBottom:6 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.sage, marginBottom:3 }}>Strengths</div>
+                      {t.feedback.strengths.map((s,j) => <div key={j} style={{ fontSize:12, color:C.sky }}>• {s}</div>)}
+                    </div>
+                  )}
+                  {t.feedback?.improvements?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.warn, marginBottom:3 }}>To improve</div>
+                      {t.feedback.improvements.map((s,j) => <div key={j} style={{ fontSize:12, color:C.sky }}>• {s}</div>)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Essays */}
+          {essays.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>✍️ Essays ({essays.length})</h3>
+              {essays.slice(0,3).map((e,i) => (
+                <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:14, marginBottom:10 }}>
+                  <div style={{ fontWeight:700, fontSize:14, marginBottom:4 }}>{e.topic_data?.title||"Essay"}</div>
+                  <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>
+                    {new Date(e.created_at).toLocaleDateString()} · <Badge color={e.status==="completed"?C.sage:C.gold}>{e.status==="completed"?"Done":"Pending rewrite"}</Badge>
+                  </div>
+                  {e.first_evaluation?.scores?.overall != null && (
+                    <div style={{ fontSize:13, color:C.sky }}>
+                      First draft: <span style={{ fontWeight:700, color:C.gold }}>{e.first_evaluation.scores.overall}%</span>
+                      {e.rewrite_evaluation?.scores?.overall != null && <> · Rewrite: <span style={{ fontWeight:700, color:C.sage }}>{e.rewrite_evaluation.scores.overall}%</span> (+{Math.max(0,e.rewrite_evaluation.scores.overall-e.first_evaluation.scores.overall)})</>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tests.length === 0 && lessons.length === 0 && essays.length === 0 && (
+            <Alert type="info">{p.name} hasn't completed any lessons or tests yet. Encourage them to start today!</Alert>
+          )}
+        </>}
+      </div>
+    </div>
+  );
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 function AdminView({ onBack }) {
   const [users, setUsers] = useState([]);
@@ -2673,7 +2984,8 @@ export default function App() {
         </div>
       )}
 
-      {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} loading={authLoading}/>}
+      {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} onParent={()=>setScreen("parent")} loading={authLoading}/>}
+      {screen==="parent" && <ParentView onBack={()=>setScreen("landing")}/>}
       {screen==="setup" && user && needsSetup(user) && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
       {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
       {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
