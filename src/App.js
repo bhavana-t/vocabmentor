@@ -731,6 +731,16 @@ function computeUpdatedTracking(existingTracking, evalResult, checkedSuggestions
   return updated;
 }
 
+// Categories that show up in 3+ past tests get flagged so the next test can dock extra points on repeat offenses.
+function getRepeatedMistakeCategories(tests, minCount = 3) {
+  const counts = {};
+  (tests || []).forEach(t => {
+    const cats = new Set((t.feedback?.corrections || []).map(c => c.category).filter(Boolean));
+    cats.forEach(cat => { counts[cat] = (counts[cat] || 0) + 1; });
+  });
+  return Object.keys(counts).filter(cat => counts[cat] >= minCount);
+}
+
 // ── Lesson View ───────────────────────────────────────────────────────────────
 function LessonView({ user, lessonNum, day, onDayComplete }) {
   const [lesson, setLesson] = useState(null);
@@ -1245,7 +1255,8 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
     const sec = test.sections;
     const kAnswers = sec.knowledge?.map((q,i)=>({ q:q.question, given:answers[`k${i}`]||"", correct:q.answer }));
     const aAnswers = sec.application?.map((q,i)=>({ q:q.question, given:answers[`a${i}`]||"", correct:q.answer }));
-    const ev = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, application:aAnswers, writing:answers.writing, speaking:answers.speaking }, true, isGrade5Plus ? improvementHistory : null);
+    const repeatedMistakes = getRepeatedMistakeCategories(user.tests);
+    const ev = await evaluateSubmission(user.profile, skill, { knowledge:kAnswers, application:aAnswers, writing:answers.writing, speaking:answers.speaking }, true, isGrade5Plus ? improvementHistory : null, repeatedMistakes);
     const record = { lesson_num:lessonNum, skill, attempt_num:attemptNum, scores:ev.scores, passed:ev.passed, answers, feedback:ev.feedback, created_at:new Date().toISOString() };
     await saveTest(user.id, record);
     localStorage.removeItem(draftKey);
@@ -1428,7 +1439,8 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
               <div style={{ ...S.card, marginBottom:16 }}>
                 <h3 style={S.h3}>✏️ Corrections</h3>
                 {result.feedback.corrections.map((c,i)=>(
-                  <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:8, padding:10, marginBottom:8, fontSize:13 }}>
+                  <div key={i} style={{ background:c.repeated?`${C.coral}18`:"rgba(255,255,255,0.04)", border:c.repeated?`1px solid ${C.coral}55`:"none", borderRadius:8, padding:10, marginBottom:8, fontSize:13 }}>
+                    {c.repeated && <div style={{ color:C.coral, fontWeight:700, marginBottom:4 }}>🔁 Repeated mistake — extra points deducted</div>}
                     <div style={{ color:C.error }}>✗ {c.original}</div>
                     <div style={{ color:C.sage }}>✓ {c.corrected}</div>
                     <div style={{ color:C.muted, marginTop:4 }}>{c.explanation}</div>

@@ -374,10 +374,17 @@ Respond with this exact JSON:
 }
 
 // ── Evaluation ────────────────────────────────────────────────────────────────
-export async function evaluateSubmission(profile, skill, answers, isTest = false, improvementHistory = null) {
+export async function evaluateSubmission(profile, skill, answers, isTest = false, improvementHistory = null, repeatedMistakes = []) {
   const isGrade5Plus = profile?.type === "student" && parseInt(profile?.grade) >= 5;
   const improvements = improvementHistory?.suggestedImprovements?.slice(-3) || [];
   const corrections = improvementHistory?.pastCorrections?.slice(-5) || [];
+
+  const repeatedMistakeBlock = (repeatedMistakes && repeatedMistakes.length > 0) ? `
+REPEATED MISTAKE PENALTY:
+This student has made these exact categories of mistake 3+ times across past tests and has already been corrected on them before:
+${repeatedMistakes.map((m,i) => `${i+1}. ${m}`).join('\n')}
+
+If any answer in this submission contains an error matching one of these categories, apply an EXTRA point deduction on top of the normal deduction for that error — roughly double the usual penalty for that specific mistake — so the score reflects that this is a repeat offense, not a first-time slip. In that correction's entry, set "repeated": true and start the explanation with "This is the same mistake you've made before — " followed by specific guidance on how to fix it for good.` : "";
 
   const accountabilityBlock = (isGrade5Plus && improvements.length > 0) ? `
 IMPROVEMENT ACCOUNTABILITY (Grade 5+ student):
@@ -420,6 +427,7 @@ Speaking transcript: ${answers.speaking || "(none)"}
 
 ${isTest ? "Score each section 0-100. Pass = 75%+ overall AND no section below 60%." : "Give encouraging feedback on exercises."}
 ${accountabilityBlock}
+${repeatedMistakeBlock}
 
 Respond with this exact JSON:
 {
@@ -430,7 +438,7 @@ Respond with this exact JSON:
     "strengths": ["string", "string"],
     "improvements": ["string", "string"],
     "corrections": [
-      {"original": "string", "corrected": "string", "explanation": "string"}
+      {"original": "string", "corrected": "string", "explanation": "string", "category": "string (short 2-4 word tag identifying the type of mistake, e.g. 'subject-verb agreement', 'spelling: silent letters' — keep this wording consistent across a student's answers so the same mistake type can be tracked over time)", "repeated": false}
     ]
   },
   "encouragement": "string",${accountabilitySchema}
