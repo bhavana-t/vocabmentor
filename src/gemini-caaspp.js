@@ -52,12 +52,15 @@ export async function generateConventionsQuiz(profile, cycleIndex = 0) {
   return callGemini(`Create a short (2-3 minute) Conventions practice quiz for a ${profileCtx(profile)} student, targeting common CAASPP-level error types.
 Focus this quiz specifically on: ${focusArea}.
 
+Before the questions, write a short "here's the rule" explanation the student reads first — plain language, age-appropriate, with 1-2 quick correct/incorrect examples so they know what to look for BEFORE attempting the quiz (not just told after they get something wrong).
+
 Create 5 quick questions mixing types: some multiple-choice (pick the corrected sentence, or identify the error), some fill-in-the-blank. Keep sentences short and age-appropriate.
 
 Respond with this exact JSON:
 {
   "type": "conventions_quiz",
   "focusArea": "${focusArea}",
+  "ruleExplanation": "string (2-4 sentences explaining the rule in plain language, with a quick correct vs. incorrect example, e.g. 'A singular subject needs a singular verb... Correct: \\"The dog runs.\\" Incorrect: \\"The dog run.\\"')",
   "exercises": [
     {"type": "mcq", "question": "string", "options": ["string","string","string","string"], "answer": "string (must exactly match one option)", "explanation": "string (brief plain-language rule)"},
     {"type": "mcq", "question": "string", "options": ["string","string","string","string"], "answer": "string", "explanation": "string"},

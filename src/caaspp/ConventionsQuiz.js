@@ -59,6 +59,13 @@ export function ConventionsQuiz({ user, onBack }) {
         <p style={{ color: C.sky, fontSize: 14, margin: 0 }}>5 quick questions, 2-3 minutes. Let's go!</p>
       </div>
 
+      {quiz.ruleExplanation && (
+        <div style={{ ...S.card, marginBottom: 16, background: "rgba(244,162,97,0.08)", border: `1px solid ${C.gold}44` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 8 }}>📖 THE RULE — READ THIS FIRST</div>
+          <p style={{ fontSize: 14, color: C.sky, lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{quiz.ruleExplanation}</p>
+        </div>
+      )}
+
       <div style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
         {exercises.map((ex, i) => (
           <MicroExercise key={i} ex={ex} idx={i} answers={answers} setAnswers={setAnswers} submitted={submitted} />
