@@ -16,7 +16,7 @@ import {
   assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson,
   analyzeAndCreateMicroPlan, evaluateImprovementApplication
 } from "./gemini";
-import { RubricScorecard, RubricTrendRow } from "./caaspp/rubric";
+import { RubricScorecard, RubricTrendRow, CaasppChecklist } from "./caaspp/rubric";
 import { summarizeWeeklyProgress } from "./caaspp/rubricConstants";
 import { OutlineBuilder, BLANK_OUTLINE } from "./caaspp/OutlineBuilder";
 import { InsertChips } from "./caaspp/InsertChips";
@@ -574,13 +574,15 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             </div>
           )}
 
-          {stage==="outline" && (
+          {stage==="outline" && <>
+            <CaasppChecklist />
             <OutlineBuilder outline={outline} setOutline={setOutline} onContinue={()=>setStage("topic")} />
-          )}
+          </>}
         </>}
 
         {/* STAGE: First Write */}
         {stage==="topic" && topic && <>
+          <CaasppChecklist collapsed />
           <div style={{ ...S.card, marginBottom:16 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
               <h3 style={{ ...S.h3, marginBottom:0 }}>✍️ Write Your Essay</h3>
@@ -735,6 +737,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
         {/* STAGE: Rewrite */}
         {stage==="rewrite" && <>
+          <CaasppChecklist collapsed />
           {evaluation && (
             <div style={{ ...S.card, marginBottom:16, background:"rgba(0,180,216,0.06)" }}>
               <h3 style={S.h3}>📋 Reminder — Improve These Areas</h3>

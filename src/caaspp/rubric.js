@@ -38,6 +38,43 @@ export function RubricScorecard({ rubric, title = "📊 CAASPP Rubric Score" }) 
   );
 }
 
+// "Here's what's graded, and what to include" — shown before the student starts writing.
+export function CaasppChecklist({ collapsed = false }) {
+  const body = (
+    <>
+      <p style={{ fontSize: 13, color: C.sky, marginBottom: 14 }}>
+        Every essay is scored on 3 things. Here's what to aim for in each:
+      </p>
+      {CAASPP_CATEGORIES.map(cat => (
+        <div key={cat.key} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.gold, marginBottom: 6 }}>
+            {cat.icon} {cat.label} <span style={{ color: C.muted, fontWeight: 400 }}>(out of {cat.max})</span>
+          </div>
+          {cat.tips.map((tip, i) => (
+            <div key={i} style={{ fontSize: 13, color: C.sky, marginBottom: 4, paddingLeft: 4 }}>✓ {tip}</div>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+
+  if (collapsed) {
+    return (
+      <details style={{ ...S.card, marginBottom: 16 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 14, color: C.gold }}>📋 What's being graded? (tap to review)</summary>
+        <div style={{ marginTop: 12 }}>{body}</div>
+      </details>
+    );
+  }
+
+  return (
+    <div style={{ ...S.card, marginBottom: 16, background: "rgba(244,162,97,0.06)", border: `1px solid ${C.gold}44` }}>
+      <h3 style={S.h3}>📋 Before You Start — What's Graded</h3>
+      {body}
+    </div>
+  );
+}
+
 // Compact trend row: last N essays' score for one category, shown as small colored pips.
 export function RubricTrendRow({ essays, categoryKey, max }) {
   const scored = (essays || [])

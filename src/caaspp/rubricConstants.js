@@ -3,9 +3,30 @@
 // these without pulling in App.js and creating a circular import (App.js -> gemini.js).
 
 export const CAASPP_CATEGORIES = [
-  { key: "organization", label: "Organization/Purpose", max: 4, icon: "🗂️" },
-  { key: "evidence", label: "Evidence/Elaboration", max: 4, icon: "🔎" },
-  { key: "conventions", label: "Conventions", max: 2, icon: "✅" }
+  {
+    key: "organization", label: "Organization/Purpose", max: 4, icon: "🗂️",
+    tips: [
+      "Have ONE clear main point (thesis) that the whole essay supports",
+      "Organize into an intro, body paragraphs, and a conclusion — each idea gets its own paragraph",
+      "Connect ideas with transition words (furthermore, in contrast, as a result...)"
+    ]
+  },
+  {
+    key: "evidence", label: "Evidence/Elaboration", max: 4, icon: "🔎",
+    tips: [
+      "Back up your points with specific evidence — facts, examples, or details, not just opinions",
+      "Explain WHY the evidence matters — don't just state it, say what it proves",
+      "Use starters like \"This shows that...\" to connect evidence to your point"
+    ]
+  },
+  {
+    key: "conventions", label: "Conventions", max: 2, icon: "✅",
+    tips: [
+      "Check subject-verb agreement (\"The dog runs,\" not \"The dog run\")",
+      "Use correct punctuation and capitalization",
+      "Avoid run-on sentences and sentence fragments"
+    ]
+  }
 ];
 
 export const CAASPP_RUBRIC_DEFINITIONS = `CAASPP Smarter Balanced ELA essay rubric (score each category independently):
