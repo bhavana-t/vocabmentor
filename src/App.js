@@ -16,20 +16,30 @@ import {
   assessLevel, generateEssayTopic, evaluateEssay, generateExtendedLesson,
   analyzeAndCreateMicroPlan, evaluateImprovementApplication
 } from "./gemini";
+import { RubricScorecard, RubricTrendRow } from "./caaspp/rubric";
+import { summarizeWeeklyProgress } from "./caaspp/rubricConstants";
+import { OutlineBuilder, BLANK_OUTLINE } from "./caaspp/OutlineBuilder";
+import { InsertChips } from "./caaspp/InsertChips";
+import { TRANSITION_WORDS, SENTENCE_STARTERS, ARGUMENT_VOCAB } from "./caaspp/wordBanks";
+import { VocabInContextQuiz } from "./caaspp/VocabQuiz";
+import { EvidenceTrainer } from "./caaspp/EvidenceTrainer";
+import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
+import { PassageSetView } from "./caaspp/PassageSetView";
+import { checkConventions } from "./gemini-caaspp";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "admin123";
 const SKILLS = ["Vocabulary", "Grammar", "Spelling", "Reading Comprehension", "Writing", "Essay", "Speaking"];
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const C = {
+export const C = {
   ink:"#1a1a2e", navy:"#16213e", royal:"#0f3460",
   teal:"#00b4d8", sky:"#90e0ef", mint:"#48cae4",
   gold:"#f4a261", coral:"#e76f51", sage:"#52b788",
   cream:"#f8f9fa", muted:"#6c757d", white:"#ffffff",
   error:"#e63946", warn:"#ffb703", purple:"#7b2d8b"
 };
-const S = {
+export const S = {
   app:{ minHeight:"100vh", background:`linear-gradient(135deg,${C.ink} 0%,${C.navy} 50%,${C.royal} 100%)`, fontFamily:"'Segoe UI',system-ui,sans-serif", color:C.cream },
   card:{ background:"rgba(255,255,255,0.05)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:16, padding:24 },
   btn:(bg,color="#fff")=>({ background:bg, color, border:"none", borderRadius:10, padding:"10px 20px", cursor:"pointer", fontWeight:600, fontSize:14, transition:"all 0.2s", display:"inline-flex", alignItems:"center", gap:6 }),
@@ -46,19 +56,19 @@ const S = {
 };
 
 // ── Micro components ──────────────────────────────────────────────────────────
-function Spinner({ label="" }) {
+export function Spinner({ label="" }) {
   return <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:32, gap:12 }}>
     <div style={{ width:36, height:36, border:`3px solid rgba(255,255,255,0.1)`, borderTop:`3px solid ${C.teal}`, borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
     {label && <div style={{ fontSize:13, color:C.sky, textAlign:"center" }}>{label}</div>}
     <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
   </div>;
 }
-function Badge({ children, color=C.teal }) { return <span style={S.tag(color)}>{children}</span>; }
-function Alert({ type="info", children }) {
+export function Badge({ children, color=C.teal }) { return <span style={S.tag(color)}>{children}</span>; }
+export function Alert({ type="info", children }) {
   const colors = { info:C.teal, success:C.sage, warn:C.warn, error:C.error };
   return <div style={{ background:`${colors[type]}22`, border:`1px solid ${colors[type]}44`, borderRadius:10, padding:"12px 16px", fontSize:14, marginBottom:12 }}>{children}</div>;
 }
-function ScoreBar({ label, score }) {
+export function ScoreBar({ label, score }) {
   const color = score>=75?C.sage:score>=60?C.warn:C.error;
   const p = S.prog(score, color);
   return <div style={{ marginBottom:10 }}>
@@ -353,8 +363,8 @@ function ProfileSetup({ user, onComplete }) {
 }
 
 // ── Essay View ────────────────────────────────────────────────────────────────
-function EssayView({ user, onBack }) {
-  const [stage, setStage] = useState("loading"); // loading|topic|write|resources|rewrite|result
+function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) {
+  const [stage, setStage] = useState("loading"); // loading|outline|topic|write|resources|rewrite|result
   const [topic, setTopic] = useState(null);
   const [essay, setEssay] = useState("");
   const [evaluation, setEvaluation] = useState(null);
@@ -364,16 +374,30 @@ function EssayView({ user, onBack }) {
   const [busy, setBusy] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [outline, setOutline] = useState(BLANK_OUTLINE);
+  const [conventionIssues, setConventionIssues] = useState([]);
+  const [checkingConventions, setCheckingConventions] = useState(false);
+  const essayTextareaRef = useRef(null);
+  const rewriteTextareaRef = useRef(null);
   const essayDraftKey = `essay_draft_${user.id}`;
 
   // Check if there's a pending essay (resubmission due)
   useEffect(()=>{
+    if (initialTopic) {
+      // Handed off from a source like the Reading & Writing Set — skip topic generation.
+      setTopic(initialTopic);
+      setOutline(BLANK_OUTLINE);
+      setStage("outline");
+      onConsumedInitialTopic?.();
+      return;
+    }
     const pending = user.essays?.find(e => e.status === "pending_rewrite");
     if (pending) {
       setTopic(pending.topic_data);
       setEvaluation(pending.first_evaluation);
       setSavedEssayId(pending.id);
       setEssay(pending.first_essay);
+      if (pending.outline) setOutline(pending.outline);
       setStage("rewrite");
     } else {
       const savedDraft = localStorage.getItem(`essay_draft_${user.id}`);
@@ -390,6 +414,20 @@ function EssayView({ user, onBack }) {
     return () => clearTimeout(t);
   },[essay, stage]);
 
+  // Real-time (debounced) convention flagging while drafting — informational only, never blocks submission.
+  useEffect(()=>{
+    if (stage !== "topic" && stage !== "rewrite") { setConventionIssues([]); return; }
+    const text = stage === "topic" ? essay : rewriteEssay;
+    if (!text || countWords(text) < 15) { setConventionIssues([]); return; }
+    const timer = setTimeout(async () => {
+      setCheckingConventions(true);
+      const r = await checkConventions(text).catch(() => null);
+      setCheckingConventions(false);
+      if (r?.type === "conventions_check") setConventionIssues(r.issues || []);
+    }, 4000);
+    return () => clearTimeout(timer);
+  },[essay, rewriteEssay, stage]);
+
   const loadTopic = async () => {
     setStage("loading");
     const pastMistakes = {
@@ -401,12 +439,12 @@ function EssayView({ user, onBack }) {
       essayCorrections: (user.essays?.flatMap(e => e.first_evaluation?.corrections || []) || []).slice(-5)
     };
     const result = await generateEssayTopic(user.profile, pastMistakes);
-    if (result.type==="essay_topic") { setTopic(result); setStage("topic"); }
+    if (result.type==="essay_topic") { setTopic(result); setOutline(BLANK_OUTLINE); setStage("outline"); }
   };
 
   const submitEssay = async () => {
     setBusy(true);
-    const result = await evaluateEssay(user.profile, topic.title, essay);
+    const result = await evaluateEssay(user.profile, topic.title, essay, false, null, outline);
     setBusy(false);
     if (result.type==="essay_evaluation") {
       setEvaluation(result);
@@ -415,6 +453,10 @@ function EssayView({ user, onBack }) {
         topic_data: topic,
         first_essay: essay,
         first_evaluation: result,
+        rubric_scores: result.rubric || null,
+        outline,
+        organization_feedback: result.organizationFeedback || null,
+        evidence_comparison: result.evidenceComparison || null,
         status: "pending_rewrite",
         created_at: new Date().toISOString()
       });
@@ -426,7 +468,7 @@ function EssayView({ user, onBack }) {
 
   const submitRewrite = async () => {
     setBusy(true);
-    const result = await evaluateEssay(user.profile, topic.title, rewriteEssay, true, essay);
+    const result = await evaluateEssay(user.profile, topic.title, rewriteEssay, true, essay, outline);
     setBusy(false);
     if (result.type==="essay_evaluation") {
       setRewriteEval(result);
@@ -434,6 +476,9 @@ function EssayView({ user, onBack }) {
         await updateEssay(savedEssayId, {
           rewrite_essay: rewriteEssay,
           rewrite_evaluation: result,
+          rubric_scores: result.rubric || null,
+          organization_feedback: result.organizationFeedback || null,
+          evidence_comparison: result.evidenceComparison || null,
           status: "completed"
         });
       }
@@ -455,9 +500,10 @@ function EssayView({ user, onBack }) {
             <Badge color={C.purple}>✍️ Essay Writing</Badge>
             <h2 style={{ ...S.h2, marginTop:8, marginBottom:0 }}>{topic?.title || "Essay"}</h2>
             <span style={{ fontSize:13, color:C.sky }}>
-              {stage==="topic"?"Step 1: Read the topic & write your essay":
-               stage==="resources"?"Step 2: Read these resources, then rewrite":
-               stage==="rewrite"?"Step 3: Rewrite with new knowledge":
+              {stage==="outline"?"Step 1: Plan your essay":
+               stage==="topic"?"Step 2: Write your essay":
+               stage==="resources"?"Step 3: Read these resources, then rewrite":
+               stage==="rewrite"?"Step 4: Rewrite with new knowledge":
                "Essay Complete! 🎉"}
             </span>
           </div>
@@ -469,8 +515,8 @@ function EssayView({ user, onBack }) {
 
         {/* Step indicator */}
         <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-          {[["1","Write","topic"],["2","Read & Research","resources"],["3","Rewrite","rewrite"],["4","Final Result","result"]].map(([num,label,s])=>{
-            const stages = ["topic","resources","rewrite","result"];
+          {[["1","Plan","outline"],["2","Write","topic"],["3","Read & Research","resources"],["4","Rewrite","rewrite"],["5","Final Result","result"]].map(([num,label,s])=>{
+            const stages = ["outline","topic","resources","rewrite","result"];
             const idx = stages.indexOf(stage);
             const thisIdx = stages.indexOf(s);
             const done = idx > thisIdx, current = idx === thisIdx;
@@ -480,14 +526,14 @@ function EssayView({ user, onBack }) {
                   {done?"✓":num}
                 </div>
                 <span style={{ fontSize:12, color:current?C.gold:done?C.sage:C.muted }}>{label}</span>
-                {num!=="4" && <span style={{ color:C.muted, fontSize:12 }}>→</span>}
+                {num!=="5" && <span style={{ color:C.muted, fontSize:12 }}>→</span>}
               </div>
             );
           })}
         </div>
 
-        {/* STAGE: Topic + First Write */}
-        {stage==="topic" && topic && <>
+        {/* STAGE: Essay Brief (shown for both Plan and Write steps) */}
+        {(stage==="outline"||stage==="topic") && topic && <>
           <div style={{ ...S.card, marginBottom:16 }}>
             <h3 style={S.h3}>📋 Essay Brief</h3>
             <div style={{ background:"rgba(123,45,139,0.15)", borderLeft:`3px solid ${C.purple}`, padding:"12px 16px", borderRadius:"0 10px 10px 0", marginBottom:12 }}>
@@ -515,19 +561,58 @@ function EssayView({ user, onBack }) {
             <div style={{ fontSize:13, color:C.muted }}>📏 {topic.minWords}–{topic.maxWords} words</div>
           </div>
 
+          {topic.passages?.length > 0 && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>📖 Reference Passages</h3>
+              <p style={{ fontSize:12, color:C.muted, marginBottom:12 }}>Use evidence from both passages in your essay.</p>
+              {topic.passages.map((p,i)=>(
+                <details key={i} style={{ marginBottom:10 }} open={i===0}>
+                  <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold, marginBottom:6 }}>{p.title}</summary>
+                  <p style={{ fontSize:13, color:C.sky, lineHeight:1.7, whiteSpace:"pre-wrap", marginTop:8 }}>{p.text}</p>
+                </details>
+              ))}
+            </div>
+          )}
+
+          {stage==="outline" && (
+            <OutlineBuilder outline={outline} setOutline={setOutline} onContinue={()=>setStage("topic")} />
+          )}
+        </>}
+
+        {/* STAGE: First Write */}
+        {stage==="topic" && topic && <>
           <div style={{ ...S.card, marginBottom:16 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
               <h3 style={{ ...S.h3, marginBottom:0 }}>✍️ Write Your Essay</h3>
               <span style={{ fontSize:13, color:wordCount>=topic.minWords?C.sage:C.warn }}>{wordCount} words</span>
             </div>
             <p style={{ fontSize:13, color:C.sky, marginBottom:10 }}>Write your first draft. Don't worry about being perfect — this is your starting point!</p>
-            <textarea style={{ ...S.input, minHeight:280, resize:"vertical", lineHeight:1.7 }}
+            <textarea ref={essayTextareaRef} style={{ ...S.input, minHeight:280, resize:"vertical", lineHeight:1.7 }}
               placeholder={`Start writing here...\n\nIntroduction: ${topic.structure?.introduction}\n\nBody: ${topic.structure?.body}\n\nConclusion: ${topic.structure?.conclusion}`}
               value={essay}
               onChange={e=>{ setEssay(e.target.value); setWordCount(countWords(e.target.value)); }}
             />
             {wordCount > 0 && wordCount < topic.minWords && (
               <Alert type="warn">⚠️ You need at least {topic.minWords} words. Currently: {wordCount} words.</Alert>
+            )}
+            <InsertChips label="🔗 Transition words — tap to add" groups={TRANSITION_WORDS}
+              textareaRef={essayTextareaRef} value={essay}
+              onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
+            <InsertChips label="💬 Explain your evidence — tap a starter" groups={SENTENCE_STARTERS}
+              textareaRef={essayTextareaRef} value={essay}
+              onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
+            <InsertChips label="🎯 Argument vocabulary — tap to add" groups={ARGUMENT_VOCAB}
+              textareaRef={essayTextareaRef} value={essay}
+              onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
+            {(checkingConventions || conventionIssues.length>0) && (
+              <div style={{ marginTop:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:6 }}>📝 Quick Grammar Check {checkingConventions && "(checking...)"}</div>
+                {conventionIssues.map((iss,i)=>(
+                  <div key={i} style={{ background:"rgba(255,193,7,0.08)", border:`1px solid ${C.warn}33`, borderRadius:8, padding:"8px 12px", marginBottom:6, fontSize:12 }}>
+                    <span style={{ color:C.warn }}>"{iss.quote}"</span> — <span style={{ color:C.sky }}>{iss.explanation}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -586,6 +671,41 @@ function EssayView({ user, onBack }) {
             )}
           </div>
 
+          <RubricScorecard rubric={evaluation.rubric} title="📊 CAASPP Rubric Score (First Draft)" />
+          {evaluation.rubric?.rubricNotes && (
+            <Alert type="info">🎯 {evaluation.rubric.rubricNotes}</Alert>
+          )}
+
+          {evaluation.organizationFeedback && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🗂️ Organization Check</h3>
+              {[["Thesis", evaluation.organizationFeedback.thesisIssue],["Paragraph breaks", evaluation.organizationFeedback.paragraphBreaksIssue],["Transitions", evaluation.organizationFeedback.transitionsIssue]].map(([label,issue])=>(
+                <div key={label} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8, fontSize:13 }}>
+                  <span>{issue?"🎯":"✅"}</span>
+                  <div><span style={{ fontWeight:700 }}>{label}: </span><span style={{ color:issue?C.sky:C.sage }}>{issue||"Looking good!"}</span></div>
+                </div>
+              ))}
+              {evaluation.organizationFeedback.notes && <p style={{ fontSize:13, color:C.sky, marginTop:8, marginBottom:0 }}>{evaluation.organizationFeedback.notes}</p>}
+            </div>
+          )}
+
+          {evaluation.evidenceComparison && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🔎 Evidence Check: Yours vs. a Model Answer</h3>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.muted, marginBottom:6 }}>YOUR EVIDENCE</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{evaluation.evidenceComparison.studentEvidence}</div>
+                </div>
+                <div style={{ background:"rgba(82,183,136,0.08)", border:`1px solid ${C.sage}33`, borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.sage, marginBottom:6 }}>MODEL EVIDENCE</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{evaluation.evidenceComparison.modelEvidence}</div>
+                </div>
+              </div>
+              <p style={{ fontSize:13, color:C.sky, margin:0 }}>💡 {evaluation.evidenceComparison.whyModelWorks}</p>
+            </div>
+          )}
+
           {/* Resources */}
           <div style={{ ...S.card, marginBottom:16 }}>
             <h3 style={S.h3}>📚 Read These Resources First</h3>
@@ -627,11 +747,27 @@ function EssayView({ user, onBack }) {
               <span style={{ fontSize:13, color:wordCount>=topic?.minWords?C.sage:C.warn }}>{countWords(rewriteEssay)} words</span>
             </div>
             <p style={{ fontSize:13, color:C.sky, marginBottom:10 }}>Now rewrite with everything you've learned. Show the improvement!</p>
-            <textarea style={{ ...S.input, minHeight:280, resize:"vertical", lineHeight:1.7 }}
+            <textarea ref={rewriteTextareaRef} style={{ ...S.input, minHeight:280, resize:"vertical", lineHeight:1.7 }}
               placeholder="Rewrite your essay here with improved vocabulary, structure, and arguments..."
               value={rewriteEssay}
               onChange={e=>setRewriteEssay(e.target.value)}
             />
+            <InsertChips label="🔗 Transition words — tap to add" groups={TRANSITION_WORDS}
+              textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
+            <InsertChips label="💬 Explain your evidence — tap a starter" groups={SENTENCE_STARTERS}
+              textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
+            <InsertChips label="🎯 Argument vocabulary — tap to add" groups={ARGUMENT_VOCAB}
+              textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
+            {(checkingConventions || conventionIssues.length>0) && (
+              <div style={{ marginTop:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:C.sky, marginBottom:6 }}>📝 Quick Grammar Check {checkingConventions && "(checking...)"}</div>
+                {conventionIssues.map((iss,i)=>(
+                  <div key={i} style={{ background:"rgba(255,193,7,0.08)", border:`1px solid ${C.warn}33`, borderRadius:8, padding:"8px 12px", marginBottom:6, fontSize:12 }}>
+                    <span style={{ color:C.warn }}>"{iss.quote}"</span> — <span style={{ color:C.sky }}>{iss.explanation}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {busy && <Spinner label="Comparing your essays and analysing improvement..."/>}
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.sage},${C.teal})`), width:"100%", justifyContent:"center", padding:14 }}
@@ -666,6 +802,41 @@ function EssayView({ user, onBack }) {
             <p style={{ color:C.sky }}>{rewriteEval.encouragement}</p>
           </div>
 
+          <RubricScorecard rubric={rewriteEval.rubric} title="📊 CAASPP Rubric Score (Final)" />
+          {rewriteEval.rubric?.rubricNotes && (
+            <Alert type="info">🎯 {rewriteEval.rubric.rubricNotes}</Alert>
+          )}
+
+          {rewriteEval.organizationFeedback && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🗂️ Organization Check</h3>
+              {[["Thesis", rewriteEval.organizationFeedback.thesisIssue],["Paragraph breaks", rewriteEval.organizationFeedback.paragraphBreaksIssue],["Transitions", rewriteEval.organizationFeedback.transitionsIssue]].map(([label,issue])=>(
+                <div key={label} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8, fontSize:13 }}>
+                  <span>{issue?"🎯":"✅"}</span>
+                  <div><span style={{ fontWeight:700 }}>{label}: </span><span style={{ color:issue?C.sky:C.sage }}>{issue||"Looking good!"}</span></div>
+                </div>
+              ))}
+              {rewriteEval.organizationFeedback.notes && <p style={{ fontSize:13, color:C.sky, marginTop:8, marginBottom:0 }}>{rewriteEval.organizationFeedback.notes}</p>}
+            </div>
+          )}
+
+          {rewriteEval.evidenceComparison && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🔎 Evidence Check: Yours vs. a Model Answer</h3>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.muted, marginBottom:6 }}>YOUR EVIDENCE</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{rewriteEval.evidenceComparison.studentEvidence}</div>
+                </div>
+                <div style={{ background:"rgba(82,183,136,0.08)", border:`1px solid ${C.sage}33`, borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.sage, marginBottom:6 }}>MODEL EVIDENCE</div>
+                  <div style={{ fontSize:13, color:C.sky }}>{rewriteEval.evidenceComparison.modelEvidence}</div>
+                </div>
+              </div>
+              <p style={{ fontSize:13, color:C.sky, margin:0 }}>💡 {rewriteEval.evidenceComparison.whyModelWorks}</p>
+            </div>
+          )}
+
           <div style={{ ...S.card, marginBottom:16 }}>
             <h3 style={S.h3}>Final Essay Analysis</h3>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:16 }}>
@@ -691,6 +862,8 @@ function EssayView({ user, onBack }) {
               ))}
             </>}
           </div>
+
+          <VocabInContextQuiz user={user} topicTitle={topic?.title} />
 
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`), width:"100%", justifyContent:"center", padding:14 }}
             onClick={()=>{ loadTopic(); }}>
@@ -1459,7 +1632,7 @@ function TestView({ user, lessonNum, attemptNum=1, onResult }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice, onMicroPlan, profileLoading }) {
+function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractice, onMicroPlan, onEvidencePractice, onConventionsQuiz, onPassageSet, profileLoading }) {
   const p = user.profile;
   const tests = user.tests||[];
   const essays = user.essays||[];
@@ -1532,6 +1705,19 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
             <h3 style={{ ...S.h3, marginBottom:6 }}>{pendingEssay.topic_data?.title}</h3>
             <p style={{ fontSize:13, color:C.sky, marginBottom:12 }}>You've done your reading — time to rewrite and show your improvement!</p>
             <button style={S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`)} onClick={onEssay}>✍️ Rewrite My Essay →</button>
+          </div>
+        )}
+
+        {/* CAASPP quick practice */}
+        {onEvidencePractice && (
+          <div style={{ ...S.card, marginBottom:20 }}>
+            <h3 style={S.h3}>⚡ Quick Practice (5-10 min)</h3>
+            <p style={{ fontSize:12, color:C.muted, marginBottom:12 }}>Short CAASPP-style practice sets, anytime.</p>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              <button style={{ ...S.btn("rgba(0,180,216,0.12)", C.teal), border:`1px solid ${C.teal}44` }} onClick={onEvidencePractice}>🔎 Evidence Practice</button>
+              {onConventionsQuiz && <button style={{ ...S.btn("rgba(244,162,97,0.12)", C.gold), border:`1px solid ${C.gold}44` }} onClick={onConventionsQuiz}>✅ Conventions Quiz</button>}
+              {onPassageSet && <button style={{ ...S.btn("rgba(123,45,139,0.15)", C.purple), border:`1px solid ${C.purple}44` }} onClick={onPassageSet}>📖 Reading & Writing Set</button>}
+            </div>
           </div>
         )}
 
@@ -2006,6 +2192,7 @@ function ParentView({ onBack }) {
   const topMistakes = Object.entries(correctionFreq).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k]) => allCorrections.find(c=>c.original===k)).filter(Boolean);
   const allImprovements = tests.flatMap(t => t.feedback?.improvements || []).slice(-4);
   const trackingItems = child?.improvement_tracking?.improvements || [];
+  const weeklySummary = summarizeWeeklyProgress(essays);
 
   return (
     <div style={{ ...S.app, paddingBottom:60 }}>
@@ -2111,6 +2298,25 @@ function ParentView({ onBack }) {
               <p style={{ fontSize:12, color:C.muted, marginBottom:14 }}>Average across all {tests.length} test{tests.length!==1?"s":""}</p>
               {sectionAvgs.map(({key,avg}) => (
                 <ScoreBar key={key} label={key.charAt(0).toUpperCase()+key.slice(1)} score={avg}/>
+              ))}
+            </div>
+          )}
+
+          {/* CAASPP Rubric Progress */}
+          {essays.some(e => e.rubric_scores) && (
+            <div style={{ ...S.card, marginBottom:16 }}>
+              <h3 style={S.h3}>🎯 CAASPP Rubric Progress</h3>
+              {weeklySummary && (
+                <div style={{ background:"rgba(82,183,136,0.1)", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:13, color:C.sage }}>
+                  📅 {weeklySummary}
+                </div>
+              )}
+              <p style={{ fontSize:12, color:C.muted, marginBottom:10 }}>Last 5 essays, oldest → newest</p>
+              {[["organization","Organization/Purpose",4],["evidence","Evidence/Elaboration",4],["conventions","Conventions",2]].map(([key,label,max])=>(
+                <div key={key} style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:13, color:C.sky, marginBottom:6 }}>{label} <span style={{ color:C.muted }}>(out of {max})</span></div>
+                  <RubricTrendRow essays={essays} categoryKey={key} max={max}/>
+                </div>
               ))}
             </div>
           )}
@@ -2460,7 +2666,7 @@ function AdminView({ onBack }) {
 // ── Micro Learning Path ───────────────────────────────────────────────────────
 const FOCUS_ICONS = { Spelling:"✏️", Punctuation:"📌", Grammar:"📖", Vocabulary:"📚", Writing:"✍️", Speaking:"🗣️" };
 
-function MicroExercise({ ex, idx, answers, setAnswers, submitted }) {
+export function MicroExercise({ ex, idx, answers, setAnswers, submitted }) {
   const ans = answers[idx] || "";
   const isCorrect = submitted && ans.toLowerCase().trim() === (ex.answer||"").toLowerCase().trim();
   const style = submitted
@@ -2483,6 +2689,7 @@ function MicroExercise({ ex, idx, answers, setAnswers, submitted }) {
         })}
       </div>
       {submitted && <div style={{ fontSize:12, color:isCorrect?C.sage:C.coral, marginTop:4 }}>{isCorrect?"✓ Correct!":"✗ Answer: "+ex.answer}</div>}
+      {submitted && ex.explanation && <div style={{ fontSize:12, color:C.sky, marginTop:4 }}>{ex.explanation}</div>}
     </div>
   );
   return (
@@ -2492,6 +2699,7 @@ function MicroExercise({ ex, idx, answers, setAnswers, submitted }) {
         onChange={e=>setAnswers(a=>({...a,[idx]:e.target.value}))}
         placeholder="Type your answer..."/>
       {submitted && <div style={{ fontSize:12, color:isCorrect?C.sage:C.coral, marginTop:4 }}>{isCorrect?"✓ Correct!":"✗ Answer: "+ex.answer}</div>}
+      {submitted && ex.explanation && <div style={{ fontSize:12, color:C.sky, marginTop:4 }}>{ex.explanation}</div>}
     </div>
   );
 }
@@ -2871,6 +3079,7 @@ export default function App() {
   const [retryLessonNum, setRetryLessonNum] = useState(null);
   const [extendedContext, setExtendedContext] = useState(null);
   const [microPlanContext, setMicroPlanContext] = useState(null);
+  const [passageSetTopic, setPassageSetTopic] = useState(null);
 
   const handleRetry = (ln) => { setRetryLessonNum(ln); setScreen("test"); };
 
@@ -2988,8 +3197,8 @@ export default function App() {
       {screen==="landing" && <LandingPage onLogin={handleLogin} onGuest={()=>setScreen("guest")} onAdmin={()=>setScreen("admin")} onParent={()=>setScreen("parent")} loading={authLoading}/>}
       {screen==="parent" && <ParentView onBack={()=>setScreen("landing")}/>}
       {screen==="setup" && user && needsSetup(user) && <ProfileSetup user={user} onComplete={u=>{setUser(u);setScreen("dashboard");}}/>}
-      {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
-      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} profileLoading={user?._dataLoading===true}/>}
+      {screen==="setup" && user && !needsSetup(user) && <Dashboard user={user} onStartLesson={()=>setScreen(user.current_day<=2?"lesson":"test")} onViewHistory={()=>setScreen("history")} onEssay={()=>setScreen("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} onEvidencePractice={()=>nav("evidence")} onConventionsQuiz={()=>nav("conventions")} onPassageSet={()=>nav("passageset")} profileLoading={user?._dataLoading===true}/>}
+      {screen==="dashboard" && user && <Dashboard user={user} onStartLesson={()=>setScreen(day<=2?"lesson":"test")} onViewHistory={()=>nav("history")} onEssay={()=>nav("essay")} onExtraPractice={handleExtraPracticeFromDashboard} onMicroPlan={()=>{setMicroPlanContext(user.micro_plan);setScreen("micro");}} onEvidencePractice={()=>nav("evidence")} onConventionsQuiz={()=>nav("conventions")} onPassageSet={()=>nav("passageset")} profileLoading={user?._dataLoading===true}/>}
       {screen==="micro_loading" && (
         <div style={{ minHeight:"100vh", background:C.navy, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:20 }}>
           <div style={{ fontSize:48, animation:"spin 1s linear infinite" }}>🔍</div>
@@ -3002,7 +3211,10 @@ export default function App() {
       {screen==="test" && user && <TestView user={user} lessonNum={testLessonNum} attemptNum={attemptNum} onResult={handleTestResult}/>}
       {screen==="extended" && user && extendedContext && <ExtendedLessonView user={user} context={extendedContext} onComplete={handleExtendedComplete}/>}
       {screen==="history" && user && <HistoryView user={user} onRetry={handleRetry}/>}
-      {screen==="essay" && user && <EssayView user={user} onBack={()=>nav("dashboard")}/>}
+      {screen==="essay" && user && <EssayView user={user} onBack={()=>nav("dashboard")} initialTopic={passageSetTopic} onConsumedInitialTopic={()=>setPassageSetTopic(null)}/>}
+      {screen==="evidence" && user && <EvidenceTrainer user={user} onBack={()=>nav("dashboard")}/>}
+      {screen==="conventions" && user && <ConventionsQuiz user={user} onBack={()=>nav("dashboard")}/>}
+      {screen==="passageset" && user && <PassageSetView user={user} onBack={()=>nav("dashboard")} onStartSynthesis={(t)=>{setPassageSetTopic(t);setScreen("essay");}}/>}
       {screen==="admin" && <AdminView onBack={()=>setScreen("landing")}/>}
       {screen==="guest" && (
         <div style={{ ...S.app, padding:24 }}>
