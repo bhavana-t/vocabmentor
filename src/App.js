@@ -760,6 +760,45 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
         {/* STAGE: Rewrite */}
         {stage==="rewrite" && <>
           <CaasppChecklist collapsed />
+
+          <details style={{ ...S.card, marginBottom:16 }}>
+            <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold }}>📝 My Plan (tap to review)</summary>
+            <div style={{ marginTop:12, fontSize:13, color:C.sky }}>
+              <div style={{ marginBottom:8 }}><strong style={{ color:C.gold }}>Thesis: </strong>{outline?.thesis || "(none written)"}</div>
+              {outline?.points?.filter(Boolean).length > 0 && (
+                <div style={{ marginBottom:8 }}>
+                  <strong style={{ color:C.gold }}>Supporting points:</strong>
+                  {outline.points.filter(Boolean).map((p,i)=><div key={i} style={{ marginLeft:12 }}>• {p}</div>)}
+                </div>
+              )}
+              <div><strong style={{ color:C.gold }}>Conclusion idea: </strong>{outline?.conclusion || "(none written)"}</div>
+            </div>
+          </details>
+
+          {(topic?.passages?.length > 0 || topic?.resources?.length > 0) && (
+            <details style={{ ...S.card, marginBottom:16 }}>
+              <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold }}>🔗 My Research (tap to review)</summary>
+              <div style={{ marginTop:12 }}>
+                {topic.passages?.map((p,i)=>(
+                  <details key={i} style={{ marginBottom:10 }}>
+                    <summary style={{ cursor:"pointer", fontWeight:700, fontSize:13, color:C.sky }}>{p.title}</summary>
+                    <p style={{ fontSize:13, color:C.sky, lineHeight:1.7, whiteSpace:"pre-wrap", marginTop:8 }}>{p.text}</p>
+                  </details>
+                ))}
+                {topic.resources?.map((r,i)=>(
+                  <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:12, marginBottom:8 }}>
+                    <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>{resourceIcons[r.type]||"📄"} {r.title}</div>
+                    <a href={`https://www.google.com/search?q=${encodeURIComponent(r.searchQuery)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ ...S.btn(`linear-gradient(135deg,${C.royal},${C.teal})`), padding:"5px 12px", fontSize:11, textDecoration:"none" }}>
+                      🔍 Search: "{r.searchQuery}"
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
           {evaluation && (
             <div style={{ ...S.card, marginBottom:16, background:"rgba(0,180,216,0.06)" }}>
               <h3 style={S.h3}>📋 Reminder — Improve These Areas</h3>
