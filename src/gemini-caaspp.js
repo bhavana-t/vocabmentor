@@ -138,16 +138,34 @@ export async function evaluateVocabUsage(word, topicTitle, sentence) {
   if (!sentence || !sentence.trim()) {
     return { type: "vocab_evaluation", correct: false, feedback: "Write a sentence first!" };
   }
-  return callGemini(`A student is practicing using the word "${word}" correctly in a sentence about this essay topic: "${topicTitle}".
+  const topicCtx = topicTitle ? `about this essay topic: "${topicTitle}"` : "about any topic they like";
+  return callGemini(`A student is practicing using the word "${word}" correctly in a sentence ${topicCtx}.
 
 Their sentence: "${sentence}"
 
-Check: does the sentence use "${word}" with the right meaning and correct grammatical form, and is it relevant to the essay topic?
+Check: does the sentence use "${word}" with the right meaning and correct grammatical form${topicTitle ? ", and is it relevant to the essay topic?" : "?"}
 
 Respond with this exact JSON:
 {
   "type": "vocab_evaluation",
   "correct": true,
   "feedback": "string (short, encouraging, specific feedback — if incorrect, explain what's off and show a quick corrected example)"
+}`);
+}
+
+// ── Word of the Day ──────────────────────────────────────────────────────────
+export async function generateWordsOfDay(profile) {
+  return callGemini(`Pick 5 useful, grade-appropriate vocabulary words for a ${profileCtx(profile)} student to learn today. Mix everyday words with a couple of slightly more advanced/academic ones worth stretching toward. Avoid words already extremely basic for this level.
+
+Respond with this exact JSON:
+{
+  "type": "words_of_day",
+  "words": [
+    {"word": "string", "meaning": "string (simple, plain-language definition)", "example": "string (one example sentence using the word)"},
+    {"word": "string", "meaning": "string", "example": "string"},
+    {"word": "string", "meaning": "string", "example": "string"},
+    {"word": "string", "meaning": "string", "example": "string"},
+    {"word": "string", "meaning": "string", "example": "string"}
+  ]
 }`);
 }

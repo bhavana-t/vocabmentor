@@ -23,6 +23,7 @@ import { InsertChips } from "./caaspp/InsertChips";
 import { TRANSITION_WORDS, SENTENCE_STARTERS, ARGUMENT_VOCAB } from "./caaspp/wordBanks";
 import { VocabInContextQuiz } from "./caaspp/VocabQuiz";
 import { EvidenceTrainer } from "./caaspp/EvidenceTrainer";
+import { WordOfDayCard, getOrCreateWordsOfDay } from "./caaspp/wordOfDay";
 import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
 import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
@@ -377,9 +378,14 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
   const [outline, setOutline] = useState(BLANK_OUTLINE);
   const [conventionIssues, setConventionIssues] = useState([]);
   const [checkingConventions, setCheckingConventions] = useState(false);
+  const [wordsOfDay, setWordsOfDay] = useState([]);
   const essayTextareaRef = useRef(null);
   const rewriteTextareaRef = useRef(null);
   const essayDraftKey = `essay_draft_${user.id}`;
+
+  useEffect(()=>{
+    getOrCreateWordsOfDay(user).then(w => setWordsOfDay((w||[]).map(x=>x.word)));
+  },[]);
 
   // Check if there's a pending essay (resubmission due)
   useEffect(()=>{
@@ -444,7 +450,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
   const submitEssay = async () => {
     setBusy(true);
-    const result = await evaluateEssay(user.profile, topic.title, essay, false, null, outline);
+    const result = await evaluateEssay(user.profile, topic.title, essay, false, null, outline, wordsOfDay);
     setBusy(false);
     if (result.type==="essay_evaluation") {
       setEvaluation(result);
@@ -468,7 +474,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
   const submitRewrite = async () => {
     setBusy(true);
-    const result = await evaluateEssay(user.profile, topic.title, rewriteEssay, true, essay, outline);
+    const result = await evaluateEssay(user.profile, topic.title, rewriteEssay, true, essay, outline, wordsOfDay);
     setBusy(false);
     if (result.type==="essay_evaluation") {
       setRewriteEval(result);
@@ -714,6 +720,10 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             </div>
           )}
 
+          {evaluation.wordsOfDayBonus?.used?.length > 0 && (
+            <Alert type="success">🎉 Nice! You used {evaluation.wordsOfDayBonus.used.length} word{evaluation.wordsOfDayBonus.used.length===1?"":"s"} of the day ({evaluation.wordsOfDayBonus.used.join(", ")}) — +{evaluation.wordsOfDayBonus.bonusPoints||0} bonus points added to your vocabulary score!</Alert>
+          )}
+
           {evaluation.evidenceComparison && (
             <div style={{ ...S.card, marginBottom:16 }}>
               <h3 style={S.h3}>🔎 Evidence Check: Yours vs. a Model Answer</h3>
@@ -879,6 +889,10 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
               ))}
               {rewriteEval.organizationFeedback.notes && <p style={{ fontSize:13, color:C.sky, marginTop:8, marginBottom:0 }}>{rewriteEval.organizationFeedback.notes}</p>}
             </div>
+          )}
+
+          {rewriteEval.wordsOfDayBonus?.used?.length > 0 && (
+            <Alert type="success">🎉 Nice! You used {rewriteEval.wordsOfDayBonus.used.length} word{rewriteEval.wordsOfDayBonus.used.length===1?"":"s"} of the day ({rewriteEval.wordsOfDayBonus.used.join(", ")}) — +{rewriteEval.wordsOfDayBonus.bonusPoints||0} bonus points added to your vocabulary score!</Alert>
           )}
 
           {rewriteEval.evidenceComparison && (
@@ -1768,6 +1782,8 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
             <button style={S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`)} onClick={onEssay}>✍️ Rewrite My Essay →</button>
           </div>
         )}
+
+        <WordOfDayCard user={user} />
 
         {/* CAASPP quick practice */}
         {onEvidencePractice && (

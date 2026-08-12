@@ -510,7 +510,7 @@ Respond with this exact JSON:
 }
 
 // ── Essay evaluation ──────────────────────────────────────────────────────────
-export async function evaluateEssay(profile, topic, essayText, isResubmission = false, firstEssay = null, outline = null) {
+export async function evaluateEssay(profile, topic, essayText, isResubmission = false, firstEssay = null, outline = null, wordsOfDay = []) {
   const outlineCtx = outline && (outline.thesis || outline.conclusion || (outline.points||[]).some(Boolean)) ? `
 The student filled out this pre-writing outline before drafting:
 Thesis: ${outline.thesis || "(left blank)"}
@@ -519,6 +519,9 @@ Conclusion idea: ${outline.conclusion || "(left blank)"}
 
 Check the essay against this outline for the organizationFeedback section below: does the essay's actual thesis match/clearly state the planned thesis (or is it missing/unclear)? Does the essay have clear paragraph breaks separating the supporting points? Does it use transition words/phrases to connect ideas (e.g. furthermore, in contrast, as a result, for example)?` : `
 No outline was filled out. For organizationFeedback, judge directly from the essay: is there a clear, identifiable thesis? Are there clear paragraph breaks? Are transitions used to connect ideas?`;
+
+  const wordsOfDayCtx = wordsOfDay?.length ? `
+WORDS OF THE DAY BONUS: This student's words of the day are: ${wordsOfDay.join(", ")}. Check if the essay uses any of them correctly (right meaning, right grammatical form) and naturally in context — not just dropped in awkwardly. For each one used correctly, add +5 points to the vocabulary score (max 100 total). List which ones were used correctly in wordsOfDayBonus.used.` : "";
 
   return callGemini(`Evaluate this essay submission.
 Profile: ${profile.type}, Grade/Career: ${profile.type === "student" ? profile.grade : profile.career}, Level: ${profile.level}
@@ -529,6 +532,7 @@ ${isResubmission && firstEssay ? `This is a RESUBMISSION. First essay was: "${fi
 In addition to the usual scoring below, also score this essay against the official CAASPP Smarter Balanced ELA rubric, independently of the other scores:
 ${CAASPP_RUBRIC_DEFINITIONS}
 ${outlineCtx}
+${wordsOfDayCtx}
 
 Respond with this exact JSON:
 {
@@ -570,6 +574,7 @@ Respond with this exact JSON:
     "studentEvidence": "string (the strongest piece of evidence/elaboration you can identify in the student's essay, quoted or closely paraphrased; or 'No clear supporting evidence found' if there isn't one)",
     "modelEvidence": "string (a model example of strong evidence + elaboration for this same topic/claim, 1-2 sentences)",
     "whyModelWorks": "string (short, plain-language explanation of what makes the model evidence stronger — specific, relevant, explained, not just stated)"
-  }
+  },
+  "wordsOfDayBonus": ${wordsOfDay?.length ? '{"used": ["string (word used correctly)"], "bonusPoints": 0}' : "null"}
 }`);
 }
