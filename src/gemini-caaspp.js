@@ -97,7 +97,9 @@ export async function generatePassageSet(profile, pastMistakes = null) {
   return callGemini(`Create a CAASPP-style multi-source reading + synthesis writing task for a ${profileCtx(profile)} student.
 ${focusCtx}
 
-Two short, related passages (150-250 words each) on the same topic but offering different angles, facts, or perspectives — the kind that requires combining information from both to write well. Then a short comprehension check (3-4 multiple choice questions, testing understanding of each passage individually), then a synthesis essay prompt that explicitly requires using information from BOTH passages.
+Two short, related passages (150-250 words each) on the same topic but offering different angles, facts, or perspectives — the kind that requires combining information from both to write well. Then a short comprehension check (3-4 multiple choice questions, testing understanding of each passage individually), then an essay prompt that explicitly requires using information from BOTH passages.
+
+IMPORTANT: All student-facing text (title, background, instructions, structure) must be written in plain, middle-school-friendly language. Do NOT use the word "synthesis" or "synthesize" anywhere the student will read it — instead say things like "combine ideas from both passages" or "use evidence from both articles."
 
 Respond with this exact JSON:
 {
@@ -115,7 +117,7 @@ Respond with this exact JSON:
     "type": "essay_topic",
     "title": "string (essay title/prompt requiring both passages)",
     "background": "string (2-3 sentences framing the task)",
-    "instructions": "string (must explicitly say to use evidence from BOTH passages)",
+    "instructions": "string (in plain language, must clearly tell the student to use evidence from BOTH passages — do not use the word 'synthesis')",
     "minWords": 150,
     "maxWords": 400,
     "structure": {

@@ -63,7 +63,7 @@ export function PassageSetView({ user, onBack, onStartSynthesis }) {
         <h2 style={{ ...S.h2, marginTop: 8 }}>
           {stage === "passage1" ? "Passage 1 of 2" : stage === "passage2" ? "Passage 2 of 2" : "Quick Check"}
         </h2>
-        <p style={{ color: C.sky, fontSize: 14, margin: 0 }}>Read both passages, answer a few quick questions, then write a synthesis essay using both.</p>
+        <p style={{ color: C.sky, fontSize: 14, margin: 0 }}>Read both passages, answer a few quick questions, then write one essay that combines ideas and evidence from BOTH passages — not just one.</p>
       </div>
 
       {(stage === "passage1" || stage === "passage2") && (() => {
@@ -99,7 +99,7 @@ export function PassageSetView({ user, onBack, onStartSynthesis }) {
           {submitted && (
             <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`), width: "100%", justifyContent: "center", padding: 14 }}
               onClick={startWriting}>
-              ✍️ Start Writing My Synthesis Essay →
+              ✍️ Start Writing — Use Both Passages →
             </button>
           )}
         </>
