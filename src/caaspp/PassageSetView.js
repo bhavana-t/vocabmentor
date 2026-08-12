@@ -1,29 +1,32 @@
 // src/caaspp/PassageSetView.js — two-passage reading + comprehension check + synthesis essay handoff.
 import { useState, useEffect } from "react";
-import { C, S, Spinner, Badge, MicroExercise } from "../App";
+import { C, S, Spinner, Badge, Alert, MicroExercise } from "../App";
 import { generatePassageSet } from "../gemini-caaspp";
 import { savePracticeSet } from "../supabase";
 
 export function PassageSetView({ user, onBack, onStartSynthesis }) {
   const [set, setSet] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [stage, setStage] = useState("passage1"); // passage1|passage2|comprehension
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const pastMistakes = {
-        weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
-          Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
-        ) || []).slice(-5)
-      };
-      const r = await generatePassageSet(user.profile, pastMistakes);
+  const load = () => {
+    setLoading(true); setError(false); setSet(null);
+    const pastMistakes = {
+      weakSections: (user.tests?.filter(t => !t.passed).flatMap(t =>
+        Object.entries(t.scores || {}).filter(([k,v]) => k !== 'total' && v < 75).map(([k]) => k)
+      ) || []).slice(-5)
+    };
+    generatePassageSet(user.profile, pastMistakes).then(r => {
       setLoading(false);
-      setSet(r.type === "passage_set" ? r : null);
-    })();
-  }, []);
+      if (r.type === "passage_set") setSet(r);
+      else setError(true);
+    });
+  };
+
+  useEffect(() => { load(); }, []);
 
   const checkQuestions = set?.comprehensionCheck || [];
   const score = () => {
@@ -42,7 +45,15 @@ export function PassageSetView({ user, onBack, onStartSynthesis }) {
   };
 
   if (loading) return <div style={{ padding: 40 }}><Spinner label="Building your reading & writing set..." /></div>;
-  if (!set) return <div style={{ padding: 24 }}><button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button></div>;
+  if (error || !set) return (
+    <div style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      <Alert type="error">Couldn't generate the reading set. This is usually a temporary API issue — try again.</Alert>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={load} style={S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`)}>Try Again</button>
+        <button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>

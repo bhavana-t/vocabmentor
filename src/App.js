@@ -595,13 +595,13 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             {wordCount > 0 && wordCount < topic.minWords && (
               <Alert type="warn">⚠️ You need at least {topic.minWords} words. Currently: {wordCount} words.</Alert>
             )}
-            <InsertChips label="🔗 Transition words — tap to add" groups={TRANSITION_WORDS}
+            <InsertChips label="🔗 Transition words — tap to add" hint="Click in your essay where you want it, then tap a word — it'll drop in right there." groups={TRANSITION_WORDS}
               textareaRef={essayTextareaRef} value={essay}
               onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
-            <InsertChips label="💬 Explain your evidence — tap a starter" groups={SENTENCE_STARTERS}
+            <InsertChips label="💬 Explain your evidence — tap a starter" hint="Use these to explain WHY your evidence matters, not just what it says." groups={SENTENCE_STARTERS}
               textareaRef={essayTextareaRef} value={essay}
               onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
-            <InsertChips label="🎯 Argument vocabulary — tap to add" groups={ARGUMENT_VOCAB}
+            <InsertChips label="🎯 Argument vocabulary — tap to add" hint="Stronger words for making your case — tap one to add it to your essay." groups={ARGUMENT_VOCAB}
               textareaRef={essayTextareaRef} value={essay}
               onInsert={(next)=>{ setEssay(next); setWordCount(countWords(next)); }} />
             {(checkingConventions || conventionIssues.length>0) && (
@@ -752,11 +752,11 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
               value={rewriteEssay}
               onChange={e=>setRewriteEssay(e.target.value)}
             />
-            <InsertChips label="🔗 Transition words — tap to add" groups={TRANSITION_WORDS}
+            <InsertChips label="🔗 Transition words — tap to add" hint="Click in your essay where you want it, then tap a word — it'll drop in right there." groups={TRANSITION_WORDS}
               textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
-            <InsertChips label="💬 Explain your evidence — tap a starter" groups={SENTENCE_STARTERS}
+            <InsertChips label="💬 Explain your evidence — tap a starter" hint="Use these to explain WHY your evidence matters, not just what it says." groups={SENTENCE_STARTERS}
               textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
-            <InsertChips label="🎯 Argument vocabulary — tap to add" groups={ARGUMENT_VOCAB}
+            <InsertChips label="🎯 Argument vocabulary — tap to add" hint="Stronger words for making your case — tap one to add it to your essay." groups={ARGUMENT_VOCAB}
               textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
             {(checkingConventions || conventionIssues.length>0) && (
               <div style={{ marginTop:10 }}>

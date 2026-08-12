@@ -1,26 +1,29 @@
 // src/caaspp/ConventionsQuiz.js — short conventions (grammar/mechanics) quiz, reachable anytime from Dashboard.
 import { useState, useEffect } from "react";
-import { C, S, Spinner, Badge, MicroExercise } from "../App";
+import { C, S, Spinner, Badge, Alert, MicroExercise } from "../App";
 import { generateConventionsQuiz } from "../gemini-caaspp";
 import { savePracticeSet } from "../supabase";
 
 export function ConventionsQuiz({ user, onBack }) {
   const [quiz, setQuiz] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      // cycle focus area based on how many conventions quizzes this student has already done
-      const priorCount = (user.practiceSets || []).filter(p => p.type === "conventions").length;
-      const r = await generateConventionsQuiz(user.profile, priorCount);
+  const load = () => {
+    setLoading(true); setError(false); setQuiz(null);
+    // cycle focus area based on how many conventions quizzes this student has already done
+    const priorCount = (user.practiceSets || []).filter(p => p.type === "conventions").length;
+    generateConventionsQuiz(user.profile, priorCount).then(r => {
       setLoading(false);
-      setQuiz(r.type === "conventions_quiz" ? r : null);
-    })();
-  }, []);
+      if (r.type === "conventions_quiz") setQuiz(r);
+      else setError(true);
+    });
+  };
+
+  useEffect(() => { load(); }, []);
 
   const exercises = quiz?.exercises || [];
   const score = () => {
@@ -37,7 +40,15 @@ export function ConventionsQuiz({ user, onBack }) {
   };
 
   if (loading) return <div style={{ padding: 40 }}><Spinner label="Building your conventions quiz..." /></div>;
-  if (!quiz) return <div style={{ padding: 24 }}><button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button></div>;
+  if (error || !quiz) return (
+    <div style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      <Alert type="error">Couldn't generate the quiz. This is usually a temporary API issue — try again.</Alert>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={load} style={S.btn(`linear-gradient(135deg,${C.gold},${C.coral})`)}>Try Again</button>
+        <button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>

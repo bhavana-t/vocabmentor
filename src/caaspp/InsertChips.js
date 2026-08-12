@@ -27,11 +27,12 @@ export function insertAtCursor(textareaRef, currentValue, textToInsert) {
 }
 
 // groups: [{ heading, items: [string] }, ...]
-export function InsertChips({ label, groups, textareaRef, value, onInsert }) {
+export function InsertChips({ label, hint, groups, textareaRef, value, onInsert }) {
   if (!groups?.length) return null;
   return (
     <div style={{ marginBottom: 14 }}>
-      {label && <div style={{ fontSize: 12, fontWeight: 700, color: C.sky, marginBottom: 8 }}>{label}</div>}
+      {label && <div style={{ fontSize: 12, fontWeight: 700, color: C.sky, marginBottom: 4 }}>{label}</div>}
+      {hint && <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>{hint}</div>}
       {groups.map((g, gi) => (
         <div key={gi} style={{ marginBottom: 8 }}>
           {g.heading && <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{g.heading}</div>}

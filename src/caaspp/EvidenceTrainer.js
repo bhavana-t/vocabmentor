@@ -1,24 +1,27 @@
 // src/caaspp/EvidenceTrainer.js — short Evidence & Elaboration practice, reachable from Dashboard.
 import { useState, useEffect } from "react";
-import { C, S, Spinner, Badge, MicroExercise } from "../App";
+import { C, S, Spinner, Badge, Alert, MicroExercise } from "../App";
 import { generateEvidenceExercise } from "../gemini-caaspp";
 import { savePracticeSet } from "../supabase";
 
 export function EvidenceTrainer({ user, topicTitle = null, onBack }) {
   const [set, setSet] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const r = await generateEvidenceExercise(user.profile, topicTitle);
+  const load = () => {
+    setLoading(true); setError(false); setSet(null);
+    generateEvidenceExercise(user.profile, topicTitle).then(r => {
       setLoading(false);
-      setSet(r.type === "evidence_set" ? r : null);
-    })();
-  }, []);
+      if (r.type === "evidence_set") setSet(r);
+      else setError(true);
+    });
+  };
+
+  useEffect(() => { load(); }, []);
 
   const exercises = set?.exercises || [];
   const score = () => {
@@ -40,7 +43,15 @@ export function EvidenceTrainer({ user, topicTitle = null, onBack }) {
   };
 
   if (loading) return <div style={{ padding: 40 }}><Spinner label="Building your evidence practice set..." /></div>;
-  if (!set) return <div style={{ padding: 24 }}><button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button></div>;
+  if (error || !set) return (
+    <div style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      <Alert type="error">Couldn't generate the practice set. This is usually a temporary API issue — try again.</Alert>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={load} style={S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`)}>Try Again</button>
+        <button onClick={onBack} style={S.btn("rgba(255,255,255,0.1)")}>← Back</button>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>
