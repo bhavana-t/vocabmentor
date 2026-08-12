@@ -10,6 +10,21 @@ function sessionKey(uid) {
   return `word_of_day_${uid}`;
 }
 
+function progressKey(uid) {
+  // Separate entry for in-progress sentences/feedback, so navigating away from Dashboard
+  // and back (which unmounts/remounts WordOfDayCard) doesn't lose already-checked answers.
+  return `word_of_day_progress_${uid}`;
+}
+
+function loadProgress(uid) {
+  try { return JSON.parse(sessionStorage.getItem(progressKey(uid))) || { sentences: {}, results: {} }; }
+  catch { return { sentences: {}, results: {} }; }
+}
+
+function saveProgress(uid, sentences, results) {
+  sessionStorage.setItem(progressKey(uid), JSON.stringify({ sentences, results }));
+}
+
 // Returns [{word, meaning, example}, ...] — generated once per login session, then cached
 // for the rest of that session so the words stay stable while writing/submitting an essay.
 export async function getOrCreateWordsOfDay(user) {
@@ -27,7 +42,9 @@ export async function getOrCreateWordsOfDay(user) {
 }
 
 export function clearWordsOfDay(uid) {
-  if (uid) sessionStorage.removeItem(sessionKey(uid));
+  if (!uid) return;
+  sessionStorage.removeItem(sessionKey(uid));
+  sessionStorage.removeItem(progressKey(uid));
 }
 
 export function WordOfDayCard({ user }) {
@@ -46,6 +63,9 @@ export function WordOfDayCard({ user }) {
       const w = await getOrCreateWordsOfDay(user);
       setLoading(false);
       setWords(w);
+      const progress = loadProgress(user.id);
+      setSentences(progress.sentences);
+      setResults(progress.results);
     })();
   }, [user.profile]);
 
@@ -53,7 +73,11 @@ export function WordOfDayCard({ user }) {
     setChecking(c => ({ ...c, [i]: true }));
     const r = await evaluateVocabUsage(word, null, sentences[i] || "").catch(() => null);
     setChecking(c => ({ ...c, [i]: false }));
-    if (r?.type === "vocab_evaluation") setResults(res => ({ ...res, [i]: r }));
+    if (r?.type === "vocab_evaluation") {
+      const nextResults = { ...results, [i]: r };
+      setResults(nextResults);
+      saveProgress(user.id, sentences, nextResults);
+    }
   };
 
   if (loading) return (
@@ -77,7 +101,11 @@ export function WordOfDayCard({ user }) {
           <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic", marginBottom: 8 }}>e.g. "{w.example}"</div>
           <input style={{ ...S.input, fontSize: 13 }} placeholder={`Write your own sentence using "${w.word}"...`}
             value={sentences[i] || ""} disabled={!!results[i]}
-            onChange={e => setSentences(s => ({ ...s, [i]: e.target.value }))} />
+            onChange={e => setSentences(s => {
+              const next = { ...s, [i]: e.target.value };
+              saveProgress(user.id, next, results);
+              return next;
+            })} />
           {!results[i] ? (
             <button style={{ ...S.btn("rgba(0,180,216,0.12)", C.teal), marginTop: 8, fontSize: 12, padding: "4px 10px" }}
               onClick={() => checkWord(i, w.word)} disabled={checking[i] || !(sentences[i] || "").trim()}>
