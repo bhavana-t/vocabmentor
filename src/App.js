@@ -574,6 +574,28 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             </div>
           )}
 
+          {topic.resources?.length > 0 && (
+            <details style={{ ...S.card, marginBottom:16 }}>
+              <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold }}>🔗 Want some background reading first? (optional)</summary>
+              <p style={{ fontSize:12, color:C.muted, marginTop:10, marginBottom:12 }}>Not required — but if this topic is new to you, a quick read can help you write with more confidence.</p>
+              {topic.resources.map((r,i)=>(
+                <div key={i} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:12, marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{resourceIcons[r.type]||"📄"} {r.title}</div>
+                    <Badge color={r.type==="wikipedia"?C.teal:r.type==="video"?C.coral:C.gold}>{r.type}</Badge>
+                  </div>
+                  <p style={{ fontSize:12, color:C.sky, marginBottom:8 }}>{r.description}</p>
+                  <a href={`https://www.google.com/search?q=${encodeURIComponent(r.searchQuery)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ ...S.btn(`linear-gradient(135deg,${C.royal},${C.teal})`), padding:"5px 12px", fontSize:11, textDecoration:"none" }}>
+                    🔍 Search: "{r.searchQuery}"
+                  </a>
+                </div>
+              ))}
+            </details>
+          )}
+          )}
+
           {stage==="outline" && <>
             <CaasppChecklist />
             <OutlineBuilder outline={outline} setOutline={setOutline} onContinue={()=>setStage("topic")} />
