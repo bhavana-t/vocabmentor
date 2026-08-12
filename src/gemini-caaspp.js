@@ -162,18 +162,16 @@ Respond with this exact JSON:
 }
 
 // ── Word of the Day ──────────────────────────────────────────────────────────
-export async function generateWordsOfDay(profile) {
-  return callGemini(`Pick 5 useful vocabulary words for a ${profileCtx(profile)} ${learnerNoun(profile)} to learn today, appropriate for their level. Mix everyday words with a couple of slightly more advanced ones worth stretching toward${isAdult(profile) ? " — favor words useful in professional writing and communication" : ""}. Avoid words already extremely basic for this level.
+export async function generateWordsOfDay(profile, count = 5, excludeWords = []) {
+  const excludeCtx = excludeWords.length ? `\nThe student has already learned these words in past sessions — pick DIFFERENT words, do not repeat any of: ${excludeWords.join(", ")}.` : "";
+
+  return callGemini(`Pick ${count} useful, NEW vocabulary word${count===1?"":"s"} for a ${profileCtx(profile)} ${learnerNoun(profile)} to learn today, appropriate for their level. Mix everyday words with a couple of slightly more advanced ones worth stretching toward${isAdult(profile) ? " — favor words useful in professional writing and communication" : ""}. Avoid words already extremely basic for this level.${excludeCtx}
 
 Respond with this exact JSON:
 {
   "type": "words_of_day",
   "words": [
-    {"word": "string", "meaning": "string (simple, plain-language definition)", "example": "string (one example sentence using the word)"},
-    {"word": "string", "meaning": "string", "example": "string"},
-    {"word": "string", "meaning": "string", "example": "string"},
-    {"word": "string", "meaning": "string", "example": "string"},
-    {"word": "string", "meaning": "string", "example": "string"}
+    {"word": "string", "meaning": "string (simple, plain-language definition)", "example": "string (one example sentence using the word)"}
   ]
 }`);
 }
