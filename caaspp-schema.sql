@@ -20,14 +20,20 @@ create table if not exists practice_sets (
   created_at timestamptz default now()
 );
 
--- 3. Row Level Security — IMPORTANT: check this against your existing tables first.
---    If `tests`/`essays` already have RLS policies scoped to auth.uid() = user_id,
---    apply the same policy here so students can only read/write their own practice sets.
---    (I could not confirm your existing policy since the real schema file was missing
---    from the repo — please verify in Supabase → Authentication → Policies before relying
---    on this table for anything sensitive.)
+-- 3. Row Level Security — deliberately left OFF here, matching the current (unenforced)
+--    state of `tests`/`essays`: a policy exists on those tables using auth.uid() = user_id,
+--    but RLS enforcement itself is not toggled on, which is why Parent View can already
+--    read a child's data while authenticated as the parent, not the child. Enabling strict
+--    RLS on just this new table would break that same pattern for practice_sets once its
+--    data is surfaced in Parent View, without fixing the underlying gap (every table is
+--    currently readable/writable by anyone holding the app's public key).
 --
--- Example, if RLS is enabled on your other tables:
+--    This is a real security gap worth fixing properly across the whole app (RLS enabled
+--    consistently on all tables + Parent/Admin views moved to an authenticated backend
+--    function instead of the anon client) — it's out of scope for this feature and deserves
+--    its own dedicated pass rather than a partial fix on one table.
+--
+-- If/when you do that broader fix, apply the same policy shape here:
 -- alter table practice_sets enable row level security;
 -- create policy "Users can manage their own practice sets"
 --   on practice_sets for all
