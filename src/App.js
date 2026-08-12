@@ -365,6 +365,8 @@ function ProfileSetup({ user, onComplete }) {
 
 // ── Essay View ────────────────────────────────────────────────────────────────
 function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) {
+  const isAdult = user.profile?.type === "adult";
+  const rubricLabel = isAdult ? "Writing Rubric" : "CAASPP Rubric";
   const [stage, setStage] = useState("loading"); // loading|outline|topic|write|resources|rewrite|result
   const [topic, setTopic] = useState(null);
   const [essay, setEssay] = useState("");
@@ -605,7 +607,8 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
           {stage==="outline" && <>
             <CaasppChecklist />
-            <OutlineBuilder outline={outline} setOutline={setOutline} onContinue={()=>setStage("topic")} />
+            <OutlineBuilder outline={outline} setOutline={setOutline} onContinue={()=>setStage("topic")}
+              intro={isAdult ? "Great writing starts with a plan. Fill these in before you write — a clear plan is the biggest thing that helps with structure and organization." : undefined} />
           </>}
         </>}
 
@@ -702,7 +705,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             )}
           </div>
 
-          <RubricScorecard rubric={evaluation.rubric} title="📊 CAASPP Rubric Score (First Draft)" />
+          <RubricScorecard rubric={evaluation.rubric} title={`📊 ${rubricLabel} Score (First Draft)`} />
           {evaluation.rubric?.rubricNotes && (
             <Alert type="info">🎯 {evaluation.rubric.rubricNotes}</Alert>
           )}
@@ -873,7 +876,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             <p style={{ color:C.sky }}>{rewriteEval.encouragement}</p>
           </div>
 
-          <RubricScorecard rubric={rewriteEval.rubric} title="📊 CAASPP Rubric Score (Final)" />
+          <RubricScorecard rubric={rewriteEval.rubric} title={`📊 ${rubricLabel} Score (Final)`} />
           {rewriteEval.rubric?.rubricNotes && (
             <Alert type="info">🎯 {rewriteEval.rubric.rubricNotes}</Alert>
           )}
@@ -1789,7 +1792,7 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
         {onEvidencePractice && (
           <div style={{ ...S.card, marginBottom:20 }}>
             <h3 style={S.h3}>⚡ Quick Practice (5-10 min)</h3>
-            <p style={{ fontSize:12, color:C.muted, marginBottom:12 }}>Short CAASPP-style practice sets, anytime.</p>
+            <p style={{ fontSize:12, color:C.muted, marginBottom:12 }}>{p?.type==="adult" ? "Short writing practice sets, anytime." : "Short CAASPP-style practice sets, anytime."}</p>
             <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
               <button style={{ ...S.btn("rgba(0,180,216,0.12)", C.teal), border:`1px solid ${C.teal}44` }} onClick={onEvidencePractice}>🔎 Evidence Practice</button>
               {onConventionsQuiz && <button style={{ ...S.btn("rgba(244,162,97,0.12)", C.gold), border:`1px solid ${C.gold}44` }} onClick={onConventionsQuiz}>✅ Conventions Quiz</button>}
@@ -2382,7 +2385,7 @@ function ParentView({ onBack }) {
           {/* CAASPP Rubric Progress */}
           {essays.some(e => e.rubric_scores) && (
             <div style={{ ...S.card, marginBottom:16 }}>
-              <h3 style={S.h3}>🎯 CAASPP Rubric Progress</h3>
+              <h3 style={S.h3}>🎯 {p.type==="adult"?"Writing":"CAASPP"} Rubric Progress</h3>
               {weeklySummary && (
                 <div style={{ background:"rgba(82,183,136,0.1)", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:13, color:C.sage }}>
                   📅 {weeklySummary}
