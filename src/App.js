@@ -386,8 +386,9 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
   const essayDraftKey = `essay_draft_${user.id}`;
 
   useEffect(()=>{
+    if (!user.profile) return; // wait for the real profile to load, not the post-login placeholder
     getOrCreateWordsOfDay(user).then(w => setWordsOfDay((w||[]).map(x=>x.word)));
-  },[]);
+  },[user.profile]);
 
   // Check if there's a pending essay (resubmission due)
   useEffect(()=>{

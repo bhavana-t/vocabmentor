@@ -38,13 +38,16 @@ export function WordOfDayCard({ user }) {
   const [checking, setChecking] = useState({});
 
   useEffect(() => {
+    // Right after login the app shows a placeholder user with profile:null while the
+    // real profile loads in the background — wait for it instead of failing silently.
+    if (!user.profile) { setLoading(true); return; }
     (async () => {
       setLoading(true);
       const w = await getOrCreateWordsOfDay(user);
       setLoading(false);
       setWords(w);
     })();
-  }, []);
+  }, [user.profile]);
 
   const checkWord = async (i, word) => {
     setChecking(c => ({ ...c, [i]: true }));
