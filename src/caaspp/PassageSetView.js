@@ -69,7 +69,7 @@ export function PassageSetView({ user, onBack, onStartSynthesis }) {
       {(stage === "passage1" || stage === "passage2") && (() => {
         const p = set.passages[stage === "passage1" ? 0 : 1];
         return (
-          <div style={{ ...S.card, marginBottom: 16 }}>
+          <div key={stage} style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
             <h3 style={S.h3}>{p.title}</h3>
             <p style={{ fontSize: 14, color: C.sky, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{p.text}</p>
             <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.teal})`), width: "100%", justifyContent: "center", padding: 12, marginTop: 10 }}
@@ -82,7 +82,7 @@ export function PassageSetView({ user, onBack, onStartSynthesis }) {
 
       {stage === "comprehension" && (
         <>
-          <div style={{ ...S.card, marginBottom: 16 }}>
+          <div style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
             <h3 style={S.h3}>✅ Quick Check</h3>
             <p style={{ fontSize: 13, color: C.sky, marginBottom: 14 }}>Make sure you understood both passages before writing.</p>
             {checkQuestions.map((q, i) => (

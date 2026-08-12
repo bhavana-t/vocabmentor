@@ -40,7 +40,7 @@ export function VocabInContextQuiz({ user, topicTitle }) {
   if (!words.length) return null;
 
   return (
-    <div style={{ ...S.card, marginBottom: 16 }}>
+    <div style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
       <h3 style={S.h3}>📚 Use It in a Sentence</h3>
       <p style={{ fontSize: 13, color: C.sky, marginBottom: 14 }}>Try using each word correctly in a sentence about your essay topic.</p>
       {words.map((word, i) => (

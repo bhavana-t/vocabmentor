@@ -63,7 +63,7 @@ export function EvidenceTrainer({ user, topicTitle = null, onBack }) {
       </div>
 
       {exercises.map((ex, i) => (
-        <div key={i} style={{ ...S.card, marginBottom: 16 }}>
+        <div key={i} style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 6 }}>PASSAGE {i + 1}</div>
           <p style={{ fontSize: 14, color: C.sky, marginBottom: 10, lineHeight: 1.6 }}>{ex.passage}</p>
           <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>

@@ -59,7 +59,7 @@ export function ConventionsQuiz({ user, onBack }) {
         <p style={{ color: C.sky, fontSize: 14, margin: 0 }}>5 quick questions, 2-3 minutes. Let's go!</p>
       </div>
 
-      <div style={{ ...S.card, marginBottom: 16 }}>
+      <div style={{ ...S.card, marginBottom: 16, transform: "translateZ(0)" }}>
         {exercises.map((ex, i) => (
           <MicroExercise key={i} ex={ex} idx={i} answers={answers} setAnswers={setAnswers} submitted={submitted} />
         ))}
