@@ -1,27 +1,33 @@
-// src/caaspp/wordOfDay.js — 5 daily vocabulary words, cached client-side per day,
+// src/caaspp/wordOfDay.js — 5 vocabulary words, refreshed once per login session,
 // with an in-place "use it in a sentence" practice and essay bonus-scoring hookup.
 import { useState, useEffect } from "react";
 import { C, S, Spinner } from "../App";
 import { generateWordsOfDay, evaluateVocabUsage } from "../gemini-caaspp";
 
-function todayKey(uid) {
-  const d = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, resets daily
-  return `word_of_day_${uid}_${d}`;
+function sessionKey(uid) {
+  // sessionStorage (not localStorage) so a fresh browser session naturally gets new words —
+  // combined with clearWordsOfDay() on logout, this means "new words every login."
+  return `word_of_day_${uid}`;
 }
 
-// Returns [{word, meaning, example}, ...] — generated once per day per user, then cached.
+// Returns [{word, meaning, example}, ...] — generated once per login session, then cached
+// for the rest of that session so the words stay stable while writing/submitting an essay.
 export async function getOrCreateWordsOfDay(user) {
-  const key = todayKey(user.id);
-  const cached = localStorage.getItem(key);
+  const key = sessionKey(user.id);
+  const cached = sessionStorage.getItem(key);
   if (cached) {
     try { return JSON.parse(cached); } catch {}
   }
   const r = await generateWordsOfDay(user.profile).catch(() => null);
   if (r?.type === "words_of_day" && r.words?.length) {
-    localStorage.setItem(key, JSON.stringify(r.words));
+    sessionStorage.setItem(key, JSON.stringify(r.words));
     return r.words;
   }
   return null;
+}
+
+export function clearWordsOfDay(uid) {
+  if (uid) sessionStorage.removeItem(sessionKey(uid));
 }
 
 export function WordOfDayCard({ user }) {

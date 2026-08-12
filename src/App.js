@@ -23,7 +23,7 @@ import { InsertChips } from "./caaspp/InsertChips";
 import { TRANSITION_WORDS, SENTENCE_STARTERS, ARGUMENT_VOCAB } from "./caaspp/wordBanks";
 import { VocabInContextQuiz } from "./caaspp/VocabQuiz";
 import { EvidenceTrainer } from "./caaspp/EvidenceTrainer";
-import { WordOfDayCard, getOrCreateWordsOfDay } from "./caaspp/wordOfDay";
+import { WordOfDayCard, getOrCreateWordsOfDay, clearWordsOfDay } from "./caaspp/wordOfDay";
 import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
 import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
@@ -3141,6 +3141,7 @@ export default function App() {
   const handleLogout = async () => {
     didLoginRef.current = false;
     hasRestoredRef.current = false;
+    if (user?.id) clearWordsOfDay(user.id);
     await logoutUser();
     setUser(null);
     setScreen("landing");
