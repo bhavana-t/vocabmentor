@@ -479,6 +479,7 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
           rubric_scores: result.rubric || null,
           organization_feedback: result.organizationFeedback || null,
           evidence_comparison: result.evidenceComparison || null,
+          outline,
           status: "completed"
         });
       }
@@ -761,17 +762,13 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
         {stage==="rewrite" && <>
           <CaasppChecklist collapsed />
 
-          <details style={{ ...S.card, marginBottom:16 }}>
-            <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold }}>📝 My Plan (tap to review)</summary>
-            <div style={{ marginTop:12, fontSize:13, color:C.sky }}>
-              <div style={{ marginBottom:8 }}><strong style={{ color:C.gold }}>Thesis: </strong>{outline?.thesis || "(none written)"}</div>
-              {outline?.points?.filter(Boolean).length > 0 && (
-                <div style={{ marginBottom:8 }}>
-                  <strong style={{ color:C.gold }}>Supporting points:</strong>
-                  {outline.points.filter(Boolean).map((p,i)=><div key={i} style={{ marginLeft:12 }}>• {p}</div>)}
-                </div>
+          <details style={{ ...S.card, marginBottom:16 }} open={!outline?.thesis && !outline?.conclusion}>
+            <summary style={{ cursor:"pointer", fontWeight:700, fontSize:14, color:C.gold }}>📝 My Plan (tap to review or edit)</summary>
+            <div style={{ marginTop:12 }}>
+              {(!outline?.thesis && !outline?.conclusion) && (
+                <Alert type="warn">This essay doesn't have a saved plan yet — fill one in now. It'll be used to check your rewrite's organization.</Alert>
               )}
-              <div><strong style={{ color:C.gold }}>Conclusion idea: </strong>{outline?.conclusion || "(none written)"}</div>
+              <OutlineBuilder outline={outline} setOutline={setOutline} hideButton />
             </div>
           </details>
 
