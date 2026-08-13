@@ -4,6 +4,7 @@ import { C, S } from "../App";
 import { evaluateVocabUsage } from "../gemini-caaspp";
 import { savePracticeSet } from "../supabase";
 import { ARGUMENT_VOCAB } from "./wordBanks";
+import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./pasteGuard";
 
 function pickThree(words) {
   const arr = [...words];
@@ -20,6 +21,7 @@ export function VocabInContextQuiz({ user, topicTitle }) {
   const [results, setResults] = useState({});
   const [checking, setChecking] = useState({});
   const [saved, setSaved] = useState(false);
+  const [pasteWarning, setPasteWarning] = useState({});
 
   const checkWord = async (i, word) => {
     setChecking(c => ({ ...c, [i]: true }));
@@ -48,7 +50,9 @@ export function VocabInContextQuiz({ user, topicTitle }) {
           <div style={{ fontSize: 14, fontWeight: 700, color: C.gold, marginBottom: 6 }}>{word}</div>
           <input style={S.input} placeholder={`Write a sentence using "${word}"...`}
             value={sentences[i] || ""} disabled={!!results[i]}
-            onChange={e => setSentences(s => ({ ...s, [i]: e.target.value }))} />
+            onChange={e => setSentences(s => ({ ...s, [i]: e.target.value }))}
+            {...blockPasteProps(v => setPasteWarning(pw => ({ ...pw, [i]: v })))} />
+          {pasteWarning[i] && <div style={{ marginTop:6, fontSize:12, color:C.warn }}>{PASTE_BLOCKED_MESSAGE}</div>}
           {!results[i] ? (
             <button style={{ ...S.btn("rgba(0,180,216,0.12)", C.teal), marginTop:8, fontSize:12, padding:"6px 12px" }}
               onClick={() => checkWord(i, word)} disabled={checking[i] || !(sentences[i] || "").trim()}>

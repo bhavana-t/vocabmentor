@@ -27,6 +27,7 @@ import { WordOfDayCard, getOrCreateWordsOfDay, clearWordsOfDay } from "./caaspp/
 import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
 import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
+import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./caaspp/pasteGuard";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "admin123";
@@ -381,6 +382,8 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
   const [conventionIssues, setConventionIssues] = useState([]);
   const [checkingConventions, setCheckingConventions] = useState(false);
   const [wordsOfDay, setWordsOfDay] = useState([]);
+  const [pasteWarning, setPasteWarning] = useState(false);
+  const noPaste = blockPasteProps(setPasteWarning);
   const essayTextareaRef = useRef(null);
   const rewriteTextareaRef = useRef(null);
   const essayDraftKey = `essay_draft_${user.id}`;
@@ -626,7 +629,9 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
               placeholder={`Start writing here...\n\nIntroduction: ${topic.structure?.introduction}\n\nBody: ${topic.structure?.body}\n\nConclusion: ${topic.structure?.conclusion}`}
               value={essay}
               onChange={e=>{ setEssay(e.target.value); setWordCount(countWords(e.target.value)); }}
+              {...noPaste}
             />
+            {pasteWarning && <Alert type="warn">{PASTE_BLOCKED_MESSAGE}</Alert>}
             {wordCount > 0 && wordCount < topic.minWords && (
               <Alert type="warn">⚠️ You need at least {topic.minWords} words. Currently: {wordCount} words.</Alert>
             )}
@@ -826,7 +831,9 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
               placeholder="Rewrite your essay here with improved vocabulary, structure, and arguments..."
               value={rewriteEssay}
               onChange={e=>setRewriteEssay(e.target.value)}
+              {...noPaste}
             />
+            {pasteWarning && <Alert type="warn">{PASTE_BLOCKED_MESSAGE}</Alert>}
             <InsertChips label="🔗 Transition words — tap to add" hint="Click in your essay where you want it, then tap a word — it'll drop in right there." groups={TRANSITION_WORDS}
               textareaRef={rewriteTextareaRef} value={rewriteEssay} onInsert={setRewriteEssay} />
             <InsertChips label="💬 Explain your evidence — tap a starter" hint="Use these to explain WHY your evidence matters, not just what it says." groups={SENTENCE_STARTERS}

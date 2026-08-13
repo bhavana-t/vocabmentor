@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { C, S, Spinner, Badge } from "../App";
 import { generateWordsOfDay, evaluateVocabUsage } from "../gemini-caaspp";
+import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./pasteGuard";
 
 const TOTAL_COUNT = 5;
 const REVIEW_COUNT = 2; // how many of today's 5 words are pulled from past sessions, if available
@@ -132,6 +133,7 @@ export function WordOfDayCard({ user }) {
   const [results, setResults] = useState({});
   const [checking, setChecking] = useState({});
   const [reuseWarning, setReuseWarning] = useState({});
+  const [pasteWarning, setPasteWarning] = useState({});
 
   useEffect(() => {
     // Right after login the app shows a placeholder user with profile:null while the
@@ -197,7 +199,9 @@ export function WordOfDayCard({ user }) {
                 saveProgress(user.id, next, results);
                 return next;
               });
-            }} />
+            }}
+            {...blockPasteProps(v => setPasteWarning(pw => ({ ...pw, [i]: v })))} />
+          {pasteWarning[i] && <div style={{ marginTop: 6, fontSize: 12, color: C.warn }}>{PASTE_BLOCKED_MESSAGE}</div>}
           {reuseWarning[i] && (
             <div style={{ marginTop: 6, fontSize: 12, color: C.warn }}>
               🔁 You've already used that exact sentence for "{w.word}" before — try writing a new one!
