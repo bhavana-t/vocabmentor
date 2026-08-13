@@ -28,6 +28,7 @@ import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
 import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
 import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./caaspp/pasteGuard";
+import { downloadTextFile, safeFilename } from "./caaspp/download";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "admin123";
@@ -503,6 +504,35 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
   const resourceIcons = { article:"📰", video:"🎬", wikipedia:"📖" };
 
+  const buildFullReport = () => {
+    const rubricLine = (r) => r ? `Organization/Purpose: ${r.organization}/4, Evidence/Elaboration: ${r.evidence}/4, Conventions: ${r.conventions}/2` : "";
+    const lines = [
+      `ESSAY: ${topic?.title || ""}`,
+      "=".repeat(60),
+      "",
+      `FIRST DRAFT — Score: ${evaluation?.scores?.overall ?? "—"}%, Grade ${evaluation?.grade || "—"}`,
+      rubricLine(evaluation?.rubric),
+      "-".repeat(60),
+      essay,
+      "",
+    ];
+    if (evaluation?.strengths?.length) lines.push("Strengths:", ...evaluation.strengths.map(s=>`- ${s}`), "");
+    if (evaluation?.improvements?.length) lines.push("Areas to improve:", ...evaluation.improvements.map(s=>`- ${s}`), "");
+    if (rewriteEval) {
+      lines.push(
+        "",
+        `FINAL REWRITE — Score: ${rewriteEval.scores?.overall ?? "—"}%, Grade ${rewriteEval.grade || "—"}`,
+        rubricLine(rewriteEval.rubric),
+        "-".repeat(60),
+        rewriteEssay,
+        ""
+      );
+      if (rewriteEval.improvementFromFirst) lines.push(`Improvement: ${rewriteEval.improvementFromFirst}`, "");
+      if (rewriteEval.strengths?.length) lines.push("Strengths:", ...rewriteEval.strengths.map(s=>`- ${s}`), "");
+    }
+    return lines.join("\n");
+  };
+
   if (stage==="loading") return <div style={{ padding:40 }}><Spinner label="Generating your essay topic..."/></div>;
 
   return (
@@ -658,6 +688,10 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
           {draftSaved && <div style={{ textAlign:"center", fontSize:12, color:C.sage, marginBottom:8 }}>✓ Draft saved</div>}
           {busy && <Spinner label="Analysing your essay..."/>}
+          <button style={{ ...S.btn("rgba(255,255,255,0.08)"), width:"100%", justifyContent:"center", padding:10, marginBottom:10, border:"1px solid rgba(255,255,255,0.15)" }}
+            onClick={()=>downloadTextFile(`${safeFilename(topic.title)}-draft.txt`, essay)} disabled={!essay.trim()}>
+            💾 Save a Copy to My Computer
+          </button>
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.purple},${C.coral})`), width:"100%", justifyContent:"center", padding:14 }}
             onClick={submitEssay} disabled={busy||wordCount<topic.minWords}>
             📤 Submit Essay for Analysis
@@ -852,6 +886,10 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
             )}
           </div>
           {busy && <Spinner label="Comparing your essays and analysing improvement..."/>}
+          <button style={{ ...S.btn("rgba(255,255,255,0.08)"), width:"100%", justifyContent:"center", padding:10, marginBottom:10, border:"1px solid rgba(255,255,255,0.15)" }}
+            onClick={()=>downloadTextFile(`${safeFilename(topic?.title)}-rewrite.txt`, rewriteEssay)} disabled={!rewriteEssay.trim()}>
+            💾 Save a Copy to My Computer
+          </button>
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.sage},${C.teal})`), width:"100%", justifyContent:"center", padding:14 }}
             onClick={submitRewrite} disabled={busy||countWords(rewriteEssay)<(topic?.minWords||100)}>
             🚀 Submit Rewrite for Final Analysis
@@ -951,6 +989,10 @@ function EssayView({ user, onBack, initialTopic=null, onConsumedInitialTopic }) 
 
           <VocabInContextQuiz user={user} topicTitle={topic?.title} />
 
+          <button style={{ ...S.btn("rgba(255,255,255,0.08)"), width:"100%", justifyContent:"center", padding:10, marginBottom:10, border:"1px solid rgba(255,255,255,0.15)" }}
+            onClick={()=>downloadTextFile(`${safeFilename(topic?.title)}-full-report.txt`, buildFullReport())}>
+            💾 Save Full Report to My Computer
+          </button>
           <button style={{ ...S.btn(`linear-gradient(135deg,${C.teal},${C.mint})`), width:"100%", justifyContent:"center", padding:14 }}
             onClick={()=>{ loadTopic(); }}>
             ✨ Start a New Essay Topic
