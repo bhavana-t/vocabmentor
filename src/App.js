@@ -2066,6 +2066,7 @@ function HistoryView({ user, onRetry }) {
   const [tab, setTab] = useState("tests");
   const [expandedLessons, setExpandedLessons] = useState({});
   const [expandedTests, setExpandedTests] = useState({});
+  const [expandedPractice, setExpandedPractice] = useState({});
   const [localUser, setLocalUser] = useState(user);
 
   useEffect(()=>{ getUserData(user.id).then(fresh=>{ if(fresh) setLocalUser(fresh); }); },[user.id]);
@@ -2073,6 +2074,27 @@ function HistoryView({ user, onRetry }) {
   const tests = (localUser.tests||[]).slice().reverse();
   const essays = (localUser.essays||[]).slice().reverse();
   const lessons = (localUser.lessons||[]).slice();
+  const practiceSets = (localUser.practiceSets||[]).slice().reverse();
+  const togglePractice = (i) => setExpandedPractice(prev => ({ ...prev, [i]: !prev[i] }));
+
+  const PRACTICE_LABELS = { evidence:"🔎 Evidence Practice", conventions:"✅ Conventions Quiz", passage:"📖 Reading & Writing Set", vocab:"📚 Vocabulary" };
+  const practiceStats = ["evidence","conventions","passage","vocab"].map(type => {
+    const attempts = practiceSets.filter(p => p.type === type);
+    const avg = attempts.length ? Math.round(attempts.reduce((s,p)=>s+(p.score||0),0)/attempts.length) : null;
+    return { type, label: PRACTICE_LABELS[type], count: attempts.length, avg };
+  });
+  const attemptedStats = practiceStats.filter(s => s.count > 0);
+  const weakestPractice = attemptedStats.length ? attemptedStats.reduce((a,b)=> (b.avg < a.avg ? b : a)) : null;
+
+  const conventionsAttempts = practiceSets.filter(p => p.type === "conventions");
+  const focusAreaStats = {};
+  conventionsAttempts.forEach(p => {
+    const fa = p.content?.focusArea || "General";
+    (focusAreaStats[fa] = focusAreaStats[fa] || []).push(p.score || 0);
+  });
+  const weakestFocusArea = Object.entries(focusAreaStats)
+    .map(([fa, scores]) => ({ fa, avg: Math.round(scores.reduce((a,b)=>a+b,0)/scores.length), count: scores.length }))
+    .sort((a,b)=>a.avg-b.avg)[0];
 
   const toggleLesson = (i) => setExpandedLessons(prev => ({ ...prev, [i]: !prev[i] }));
   const toggleTest = (i) => setExpandedTests(prev => ({ ...prev, [i]: !prev[i] }));
@@ -2081,7 +2103,7 @@ function HistoryView({ user, onRetry }) {
     <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px 80px" }}>
       <h2 style={S.h2}>📋 My History</h2>
       <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-        {[["tests","📝 Tests"],["lessons","📖 Lessons"],["essays","✍️ Essays"]].map(([key,label])=>(
+        {[["tests","📝 Tests"],["lessons","📖 Lessons"],["essays","✍️ Essays"],["practice","🎯 Practice"]].map(([key,label])=>(
           <button key={key} onClick={()=>setTab(key)} style={{ ...S.btn(tab===key?`rgba(0,180,216,0.2)`:"rgba(255,255,255,0.06)"), border:tab===key?`1px solid ${C.teal}44`:"1px solid transparent" }}>
             {label}
           </button>
@@ -2274,6 +2296,64 @@ function HistoryView({ user, onRetry }) {
           {e.first_essay && <div style={{ marginTop:10, fontSize:13, fontStyle:"italic", color:C.sky, background:"rgba(255,255,255,0.03)", borderRadius:8, padding:10 }}>"{e.first_essay.slice(0,150)}..."</div>}
         </div>
       )))}
+
+      {tab==="practice" && (practiceSets.length===0 ? <Alert type="info">No Quick Practice attempts yet — try Evidence Practice, a Conventions Quiz, or a Reading & Writing Set from the dashboard!</Alert> : <>
+        {/* Performance summary */}
+        <div style={{ ...S.card, marginBottom:16 }}>
+          <h3 style={S.h3}>📊 How You're Doing</h3>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10, marginBottom:14 }}>
+            {practiceStats.map(s=>(
+              <div key={s.type} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:10, textAlign:"center", opacity:s.count?1:0.5 }}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>{s.label}</div>
+                <div style={{ fontSize:20, fontWeight:800, color:s.avg==null?C.muted:s.avg>=75?C.sage:s.avg>=60?C.warn:C.error }}>{s.avg!=null?`${s.avg}%`:"—"}</div>
+                <div style={{ fontSize:10, color:C.muted }}>{s.count} attempt{s.count!==1?"s":""}</div>
+              </div>
+            ))}
+          </div>
+          {weakestPractice && weakestPractice.avg < 75 && (
+            <Alert type="warn">
+              🎯 Focus area: <strong>{weakestPractice.label}</strong> (avg {weakestPractice.avg}%) — try a few more of these to build it up.
+              {weakestPractice.type==="conventions" && weakestFocusArea && (
+                <> Specifically, <strong>{weakestFocusArea.fa}</strong> is the weakest spot (avg {weakestFocusArea.avg}% over {weakestFocusArea.count} quiz{weakestFocusArea.count!==1?"zes":""}).</>
+              )}
+            </Alert>
+          )}
+          {weakestPractice && weakestPractice.avg >= 75 && (
+            <Alert type="success">🎉 Solid scores across the board — keep it up!</Alert>
+          )}
+        </div>
+
+        {/* Individual attempts */}
+        {practiceSets.map((p,i)=>{
+          const expanded = !!expandedPractice[i];
+          return (
+            <div key={i} style={{ ...S.card, marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div>
+                  <div style={{ fontWeight:700 }}>{PRACTICE_LABELS[p.type]||p.type}{p.type==="conventions" && p.content?.focusArea ? ` — ${p.content.focusArea}` : ""}</div>
+                  <div style={{ fontSize:12, color:C.muted }}>{new Date(p.created_at).toLocaleString()}</div>
+                </div>
+                <div style={{ fontSize:18, fontWeight:800, color:(p.score||0)>=75?C.sage:(p.score||0)>=60?C.warn:C.error }}>{p.score||0}%</div>
+              </div>
+              <button onClick={()=>togglePractice(i)} style={{ ...S.btn("rgba(255,255,255,0.06)"), padding:"4px 10px", fontSize:12, border:"1px solid rgba(255,255,255,0.1)", marginBottom:expanded?10:0 }}>
+                {expanded?"▲ Hide Details":"▼ Show Details"}
+              </button>
+              {expanded && (
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:12, fontSize:12, color:C.sky }}>
+                  {p.type==="vocab" && p.content?.words?.length>0 && (
+                    <div>Words: {p.content.words.join(", ")}{p.content.topicTitle ? ` (from essay: "${p.content.topicTitle}")` : ""}</div>
+                  )}
+                  {p.type==="conventions" && p.content?.ruleExplanation && (
+                    <div style={{ fontStyle:"italic", marginBottom:6 }}>{p.content.ruleExplanation}</div>
+                  )}
+                  {p.type==="evidence" && p.content?.encouragement && <div>{p.content.encouragement}</div>}
+                  {p.type==="passage" && p.content?.synthesisTopic?.title && <div>Reading set: "{p.content.synthesisTopic.title}"</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </>)}
     </div>
   );
 }
