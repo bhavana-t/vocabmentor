@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { C, S, Spinner, Badge } from "../App";
 import { generateWordsOfDay, evaluateVocabUsage } from "../gemini-caaspp";
 import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./pasteGuard";
+import { savePracticeSet } from "../supabase";
 
 const TOTAL_COUNT = 5;
 const REVIEW_COUNT = 2; // how many of today's 5 words are pulled from past sessions, if available
@@ -235,6 +236,9 @@ export function WordOfDayCard({ user }) {
       setResults(nextResults);
       saveProgress(user.id, sentences, nextResults);
       if (r.correct) recordSentenceUsed(user.id, word, sentence);
+      // Word of the Day itself only lives in browser storage — save a lightweight record
+      // server-side too, purely so Admin can see the student engaged with it that day.
+      savePracticeSet(user.id, { type: "wordofday", content: { word }, answers: { sentence }, score: r.correct ? 100 : 0 }).catch(() => {});
     }
   };
 

@@ -349,6 +349,7 @@ export async function getAllUsers() {
     const tests = await getUserTests(u.id);
     const lessons = await getUserLessons(u.id);
     const essays = await getUserEssays(u.id);
-    return { ...u, tests, lessons, essays };
+    const practiceSets = await getUserPracticeSets(u.id);
+    return { ...u, tests, lessons, essays, practiceSets };
   }));
 }

@@ -29,6 +29,7 @@ import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
 import { blockPasteProps, PASTE_BLOCKED_MESSAGE } from "./caaspp/pasteGuard";
 import { downloadTextFile, safeFilename } from "./caaspp/download";
+import { computeDailyCompletion } from "./caaspp/dailyCompletion";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "admin123";
@@ -2828,6 +2829,40 @@ function AdminView({ onBack }) {
             {e.first_essay && <div style={{ marginTop:8, fontSize:12, fontStyle:"italic", color:C.sky, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:8 }}>"{e.first_essay.slice(0,150)}{e.first_essay.length>150?"...":""}"</div>}
           </div>
         ))}
+
+        {/* Daily Activity */}
+        {(() => {
+          const dailyActivity = computeDailyCompletion(u);
+          const incompleteDays = dailyActivity.filter(d => !d.complete);
+          return (
+            <>
+              <h3 style={{ ...S.h3, marginTop:20 }}>📅 Daily Activity ({dailyActivity.length} active day{dailyActivity.length!==1?"s":""})</h3>
+              <p style={{ fontSize:11, color:C.muted, marginBottom:10 }}>
+                "Complete" means Word of the Day, CAASPP Quick Practice, and essay work all happened the same day. Essays naturally span multiple days by design (write → research → rewrite), so a day flagged incomplete just describes what happened — it isn't necessarily a problem.
+              </p>
+              {dailyActivity.length===0 ? <Alert type="info">No activity recorded yet.</Alert> : <>
+                {incompleteDays.length>0 && (
+                  <Alert type="warn">⚠️ {incompleteDays.length} of {dailyActivity.length} active day{dailyActivity.length!==1?"s":""} incomplete.</Alert>
+                )}
+                {dailyActivity.map(d=>(
+                  <div key={d.date} style={{ ...S.card, marginBottom:8, padding:12 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{new Date(d.date+"T00:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}</div>
+                      <Badge color={d.complete?C.sage:C.warn}>{d.complete?"✓ Complete":"⚠️ Incomplete"}</Badge>
+                    </div>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      {[["📅 Word of Day",d.wordOfDay],["🎯 CAASPP Practice",d.caasppPractice],["✍️ Essay",d.essay],["📖 Lesson/Test",d.lessonOrTest]].map(([label,done])=>(
+                        <div key={label} style={{ fontSize:11, padding:"3px 8px", borderRadius:6, background:done?"rgba(82,183,136,0.12)":"rgba(230,57,70,0.08)", color:done?C.sage:C.muted }}>
+                          {done?"✓":"✗"} {label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </>}
+            </>
+          );
+        })()}
       </div>
     );
   }
@@ -2854,6 +2889,7 @@ function AdminView({ onBack }) {
       {users.map(u=>{
         const tests=u.tests||[], avg=tests.length?Math.round(tests.reduce((s,t)=>s+(t.scores?.total||0),0)/tests.length):null;
         const stuck=flagged.find(f=>f.id===u.id);
+        const incompleteDays = computeDailyCompletion(u).filter(d=>!d.complete).length;
         return (
           <div key={u.id} onClick={()=>setSelected(u.id)} style={{ ...S.card, marginBottom:10, cursor:"pointer", border:`1px solid ${stuck?C.warn+"44":"rgba(255,255,255,0.1)"}` }}>
             <div style={{ display:"flex", justifyContent:"space-between" }}>
@@ -2861,6 +2897,7 @@ function AdminView({ onBack }) {
                 <div style={{ fontWeight:700 }}>{u.profile?.name||u.username} {stuck&&"⚠️"}</div>
                 <div style={{ fontSize:12, color:C.muted }}>{u.email} · {u.profile?.type||"No profile"} · L{u.current_lesson||1}</div>
                 {u.last_active && <div style={{ fontSize:11, color:C.muted }}>Last active: {new Date(u.last_active).toLocaleDateString()}</div>}
+                {incompleteDays>0 && <div style={{ fontSize:11, color:C.warn, marginTop:2 }}>📅 {incompleteDays} incomplete day{incompleteDays!==1?"s":""}</div>}
               </div>
               <div style={{ textAlign:"right" }}>
                 {avg!==null && <div style={{ fontWeight:700, color:avg>=75?C.sage:C.warn }}>{avg}%</div>}
