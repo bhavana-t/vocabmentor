@@ -126,6 +126,76 @@ function recordSentenceUsed(uid, word, sentence) {
   }
 }
 
+// Picks up to `count` words the student learned in PAST sessions (excluding whatever's
+// showing today, so they're not quizzed twice on the same word in one login) for a
+// retrieval-practice recall check. Returns [] if there isn't enough history yet.
+function getRecallWords(uid, excludeWords, count) {
+  const history = loadHistory(uid);
+  const candidates = Object.keys(history).filter(w => !excludeWords.includes(w));
+  if (candidates.length < count) return [];
+  return pickRandom(candidates, count).map(w => ({ word: w, meaning: history[w].meaning }));
+}
+
+export function RecallCheckCard({ user }) {
+  const [recallWords, setRecallWords] = useState(null);
+  const [guesses, setGuesses] = useState({});
+  const [revealed, setRevealed] = useState({});
+  const [selfMarks, setSelfMarks] = useState({}); // idx -> "got-it" | "review"
+  const [pasteWarning, setPasteWarning] = useState({});
+
+  useEffect(() => {
+    if (!user.profile) return;
+    (async () => {
+      const today = await getOrCreateWordsOfDay(user); // already cached by now — no extra API call
+      const todayWords = (today || []).map(w => w.word);
+      setRecallWords(getRecallWords(user.id, todayWords, 3));
+    })();
+  }, [user.profile]);
+
+  if (!recallWords?.length) return null; // not enough word history yet to quiz on
+
+  return (
+    <div style={{ ...S.card, marginBottom: 20 }}>
+      <h3 style={S.h3}>🧠 Remember These?</h3>
+      <p style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+        Words you learned before — try to recall the meaning before peeking!
+      </p>
+      {recallWords.map((w, i) => (
+        <div key={w.word} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: i < recallWords.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: C.gold, marginBottom: 6 }}>{w.word}</div>
+          <input style={{ ...S.input, fontSize: 13 }} placeholder="What do you think this means?"
+            value={guesses[i] || ""} disabled={!!revealed[i]}
+            onChange={e => setGuesses(g => ({ ...g, [i]: e.target.value }))}
+            {...blockPasteProps(v => setPasteWarning(pw => ({ ...pw, [i]: v })))} />
+          {pasteWarning[i] && <div style={{ marginTop: 6, fontSize: 12, color: C.warn }}>{PASTE_BLOCKED_MESSAGE}</div>}
+          {!revealed[i] ? (
+            <button style={{ ...S.btn("rgba(0,180,216,0.12)", C.teal), marginTop: 8, fontSize: 12, padding: "4px 10px" }}
+              onClick={() => setRevealed(r => ({ ...r, [i]: true }))} disabled={!(guesses[i] || "").trim()}>
+              Reveal Answer
+            </button>
+          ) : !selfMarks[i] ? (
+            <>
+              <div style={{ marginTop: 8, background: "rgba(0,180,216,0.08)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.sky }}>
+                <strong style={{ color: C.gold }}>Actual meaning: </strong>{w.meaning}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button style={{ ...S.btn("rgba(82,183,136,0.15)", C.sage), fontSize: 12, padding: "4px 10px" }}
+                  onClick={() => setSelfMarks(s => ({ ...s, [i]: "got-it" }))}>✓ I got it right</button>
+                <button style={{ ...S.btn("rgba(255,183,3,0.15)", C.warn), fontSize: 12, padding: "4px 10px" }}
+                  onClick={() => setSelfMarks(s => ({ ...s, [i]: "review" }))}>🔁 Need more practice</button>
+              </div>
+            </>
+          ) : (
+            <div style={{ marginTop: 8, fontSize: 12, color: selfMarks[i] === "got-it" ? C.sage : C.warn }}>
+              {selfMarks[i] === "got-it" ? "✓ Nice, you remembered it!" : "🔁 That's okay — it'll come up again for more practice."}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function WordOfDayCard({ user }) {
   const [words, setWords] = useState(null);
   const [loading, setLoading] = useState(true);

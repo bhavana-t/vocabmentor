@@ -23,7 +23,7 @@ import { InsertChips } from "./caaspp/InsertChips";
 import { TRANSITION_WORDS, SENTENCE_STARTERS, ARGUMENT_VOCAB } from "./caaspp/wordBanks";
 import { VocabInContextQuiz } from "./caaspp/VocabQuiz";
 import { EvidenceTrainer } from "./caaspp/EvidenceTrainer";
-import { WordOfDayCard, getOrCreateWordsOfDay, clearWordsOfDay } from "./caaspp/wordOfDay";
+import { WordOfDayCard, RecallCheckCard, getOrCreateWordsOfDay, clearWordsOfDay } from "./caaspp/wordOfDay";
 import { ConventionsQuiz } from "./caaspp/ConventionsQuiz";
 import { PassageSetView } from "./caaspp/PassageSetView";
 import { checkConventions } from "./gemini-caaspp";
@@ -1837,6 +1837,7 @@ function Dashboard({ user, onStartLesson, onViewHistory, onEssay, onExtraPractic
         )}
 
         <WordOfDayCard user={user} />
+        <RecallCheckCard user={user} />
 
         {/* CAASPP quick practice */}
         {onEvidencePractice && (
