@@ -2,6 +2,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Gemini API key loaded from REACT_APP_GEMINI_KEY environment variable
 // ─────────────────────────────────────────────────────────────────────────────
+import { CAASPP_RUBRIC_DEFINITIONS } from "./caaspp/rubricConstants";
+
 const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 
@@ -516,12 +518,29 @@ Respond with this exact JSON:
 }
 
 // ── Essay evaluation ──────────────────────────────────────────────────────────
-export async function evaluateEssay(profile, topic, essayText, isResubmission = false, firstEssay = null) {
+export async function evaluateEssay(profile, topic, essayText, isResubmission = false, firstEssay = null, outline = null, wordsOfDay = []) {
+  const outlineCtx = outline && (outline.thesis || outline.conclusion || (outline.points||[]).some(Boolean)) ? `
+The student filled out this pre-writing outline before drafting:
+Thesis: ${outline.thesis || "(left blank)"}
+Supporting points: ${(outline.points||[]).filter(Boolean).join(" | ") || "(left blank)"}
+Conclusion idea: ${outline.conclusion || "(left blank)"}
+
+Check the essay against this outline for the organizationFeedback section below: does the essay's actual thesis match/clearly state the planned thesis (or is it missing/unclear)? Does the essay have clear paragraph breaks separating the supporting points? Does it use transition words/phrases to connect ideas (e.g. furthermore, in contrast, as a result, for example)?` : `
+No outline was filled out. For organizationFeedback, judge directly from the essay: is there a clear, identifiable thesis? Are there clear paragraph breaks? Are transitions used to connect ideas?`;
+
+  const wordsOfDayCtx = wordsOfDay?.length ? `
+WORDS OF THE DAY BONUS: This student's words of the day are: ${wordsOfDay.join(", ")}. Check if the essay uses any of them correctly (right meaning, right grammatical form) and naturally in context — not just dropped in awkwardly. For each one used correctly, add +5 points to the vocabulary score (max 100 total). List which ones were used correctly in wordsOfDayBonus.used.` : "";
+
   return callGemini(`Evaluate this essay submission.
 Profile: ${profile.type}, Grade/Career: ${profile.type === "student" ? profile.grade : profile.career}, Level: ${profile.level}
 Topic: ${topic}
 Essay: ${essayText}
 ${isResubmission && firstEssay ? `This is a RESUBMISSION. First essay was: "${firstEssay}". Compare improvement.` : "This is the FIRST submission."}
+
+In addition to the usual scoring below, also score this essay against the official CAASPP Smarter Balanced ELA rubric, independently of the other scores:
+${CAASPP_RUBRIC_DEFINITIONS}
+${outlineCtx}
+${wordsOfDayCtx}
 
 Respond with this exact JSON:
 {
@@ -546,6 +565,24 @@ Respond with this exact JSON:
   "improvedVersion": "string (a model paragraph showing how one section could be improved)",
   "improvementFromFirst": ${isResubmission ? '"string (specific comparison of what improved)"' : "null"},
   "readyToMove": true,
-  "encouragement": "string"
+  "encouragement": "string",
+  "rubric": {
+    "organization": 0,
+    "evidence": 0,
+    "conventions": 0,
+    "rubricNotes": "string (one plain-language sentence per category on why it scored that way, phrased as growth-oriented — e.g. 'Organization: your thesis is clear, but try grouping your ideas into more distinct paragraphs.')"
+  },
+  "organizationFeedback": {
+    "thesisIssue": "string or null (null if the thesis is clear and present; otherwise a specific, growth-oriented note on what's missing or unclear)",
+    "paragraphBreaksIssue": "string or null (null if paragraph breaks are clear; otherwise note where breaks are missing)",
+    "transitionsIssue": "string or null (null if transitions are used well; otherwise note where transitions are weak or missing, with 1-2 suggested transition words that would fit)",
+    "notes": "string (one encouraging sentence summarizing the organization check, framed as the next skill to build, not a failure)"
+  },
+  "evidenceComparison": {
+    "studentEvidence": "string (the strongest piece of evidence/elaboration you can identify in the student's essay, quoted or closely paraphrased; or 'No clear supporting evidence found' if there isn't one)",
+    "modelEvidence": "string (a model example of strong evidence + elaboration for this same topic/claim, 1-2 sentences)",
+    "whyModelWorks": "string (short, plain-language explanation of what makes the model evidence stronger — specific, relevant, explained, not just stated)"
+  },
+  "wordsOfDayBonus": ${wordsOfDay?.length ? '{"used": ["string (word used correctly)"], "bonusPoints": 0}' : "null"}
 }`);
 }

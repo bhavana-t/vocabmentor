@@ -173,7 +173,8 @@ export async function getUserData(uid) {
   const tests = await getUserTests(uid);
   const lessons = await getUserLessons(uid);
   const essays = await getUserEssays(uid);
-  return { ...data, tests, lessons, essays };
+  const practiceSets = await getUserPracticeSets(uid);
+  return { ...data, tests, lessons, essays, practiceSets };
 }
 
 export async function saveProfile(uid, profile) {
@@ -237,6 +238,21 @@ export async function updateEssay(essayId, updates) {
 
 export async function getUserEssays(uid) {
   const { data } = await supabase.from("essays").select("*").eq("user_id", uid).order("created_at", { ascending: false });
+  return data || [];
+}
+
+// ── CAASPP practice sets (evidence trainer, conventions quizzes, passage sets, vocab quizzes) ──
+// SQL needed: see caaspp-schema.sql (essays.rubric_scores/outline/organization_feedback/evidence_comparison + practice_sets table)
+export async function savePracticeSet(uid, record) {
+  const { data, error } = await supabase.from("practice_sets").insert({ user_id: uid, ...record }).select().maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function getUserPracticeSets(uid, type = null) {
+  let query = supabase.from("practice_sets").select("*").eq("user_id", uid).order("created_at", { ascending: false });
+  if (type) query = query.eq("type", type);
+  const { data } = await query;
   return data || [];
 }
 
@@ -321,7 +337,8 @@ export async function findStudentByEmail(email) {
   const tests = await getUserTests(data.id);
   const lessons = await getUserLessons(data.id);
   const essays = await getUserEssays(data.id);
-  return { ...data, tests, lessons, essays };
+  const practiceSets = await getUserPracticeSets(data.id);
+  return { ...data, tests, lessons, essays, practiceSets };
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -332,6 +349,7 @@ export async function getAllUsers() {
     const tests = await getUserTests(u.id);
     const lessons = await getUserLessons(u.id);
     const essays = await getUserEssays(u.id);
-    return { ...u, tests, lessons, essays };
+    const practiceSets = await getUserPracticeSets(u.id);
+    return { ...u, tests, lessons, essays, practiceSets };
   }));
 }
